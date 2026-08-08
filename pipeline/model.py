@@ -28,7 +28,7 @@ def build_surrogate(
     network = build_network(
         architecture=config.network.architecture,
         key=jax.random.PRNGKey(config.network.seed),
-        in_size=config.network.in_size,
+        in_size=config.network.in_size or train_dataset.input_dim,
         out_size=config.network.out_size,
         width_size=config.network.width_size,
         depth=config.network.depth,

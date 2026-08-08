@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from marktsimulation.pricing_model import (
     BlackScholesParams,
@@ -12,10 +13,15 @@ from marktsimulation.timesteppingscheme import (
 
 from marktsimulation.payoff import (
     EuropeanCall,
+    sigmoid_smooth,
 )
 
 from marktsimulation.monte_carlo_pricer import (
     MonteCarloPricer,
+)
+
+from marktsimulation.sobolev_labels import (
+    create_sobolev_labels,
 )
 
 
@@ -93,6 +99,131 @@ def bs_mc_price(
     )
 
     return discount * price
+
+
+def make_mc_calibration_pricer(
+    spot: float,
+    maturities: jnp.ndarray,
+    seed: int = 0,
+    num_paths: int = MC_NUM_PATHS,
+    num_steps: int = MC_NUM_STEPS,
+):
+    """
+    Build a `pricing_fn` for the Calibrator that prices the whole
+    instrument set by Monte Carlo instead of the analytic formula.
+
+    Every European option sharing a maturity can be priced off the same
+    terminal sample, so one residual evaluation costs one path bundle per
+    *distinct maturity*, not one per instrument. The grouping is read off
+    the market data here, before the solve starts, because it has to be a
+    static structure inside the traced residual.
+
+    The key is fixed and independent of the parameters (common random
+    numbers). Re-drawing paths at every Levenberg-Marquardt step would
+    make the residual discontinuous in (r, sigma) and its Jacobian
+    meaningless.
+
+    Note that the resulting prices carry the same Euler-discretization
+    and payoff-smoothing bias as the training labels, so the calibrated
+    parameters do too.
+    """
+
+    maturities = np.asarray(maturities)
+
+    num_instruments = len(maturities)
+
+    # (maturity, indices of the instruments that share it)
+    groups = [
+        (
+            float(T),
+            jnp.asarray(
+                np.where(maturities == T)[0]
+            ),
+        )
+        for T in np.unique(maturities)
+    ]
+
+    base_key = jax.random.PRNGKey(seed)
+
+    scheme = EulerMaruyama()
+
+    model = BlackScholesModel(
+        scheme=scheme
+    )
+
+    def mc_pricing_fn(
+        params,
+        strikes,
+        maturities,
+        is_call,
+    ):
+
+        prices = jnp.zeros(
+            num_instruments
+        )
+
+        for group_index, (T, indices) in enumerate(groups):
+
+            key = jax.random.fold_in(
+                base_key,
+                group_index,
+            )
+
+            paths = scheme.generate_paths(
+                s0=jnp.array([spot]),
+                drift_fn=model.drift,
+                diffusion_fn=model.diffusion,
+                params=params,
+                key=key,
+                num_paths=num_paths,
+                num_steps=num_steps,
+                dt=T / num_steps,
+                corr=model.noise_correlation(params),
+            )
+
+            terminal = paths[:, -1, 0]
+
+            # same construction as EuropeanPayoff, but vectorized over
+            # every strike at this maturity instead of one at a time
+            omega = jnp.where(
+                is_call[indices],
+                1.0,
+                -1.0,
+            )
+
+            intrinsic = (
+                omega[None, :]
+                * (
+                    terminal[:, None]
+                    - strikes[indices][None, :]
+                )
+            )
+
+            payoffs = sigmoid_smooth(
+                intrinsic,
+                _payoff_smoothing_width(
+                    spot,
+                    T,
+                    params.sigma,
+                ),
+            )
+
+            discount = jnp.exp(
+                -params.r * T
+            )
+
+            prices = prices.at[indices].set(
+                discount
+                * jnp.mean(
+                    payoffs,
+                    axis=0,
+                )
+            )
+
+        return prices
+
+    return mc_pricing_fn
+
 
 def bs_mc_feature_price(
     x: jnp.ndarray,
@@ -211,34 +342,10 @@ def create_bs_mc_dataset_with_hvps(
     V: jnp.ndarray,  # per-sample random unit probe vectors
     sobolev_order: int = 2,
 ):
-    price_and_grad_fn = jax.jit(jax.value_and_grad(bs_mc_feature_price))
-
-    if sobolev_order >= 2:
-        hvp_fn = jax.jit(bs_mc_feature_hvp)
-
-    prices = []
-    gradients = []
-    hvps = []
-
-    print(f"Generating data with HVPs for {len(X)} samples...")
-
-    for i in range(len(X)):
-        x = X[i]
-        v = V[i]
-
-        price, grad = price_and_grad_fn(x)
-        prices.append(price)
-        gradients.append(grad)
-
-        if sobolev_order >= 2:
-            hvps.append(hvp_fn(x, v))
-
-    prices = jnp.stack(prices)
-    gradients = jnp.stack(gradients)
-
-    if sobolev_order >= 2:
-        hvps = jnp.stack(hvps)
-    else:
-        hvps = None
-
-    return prices, gradients, hvps
+    return create_sobolev_labels(
+        bs_mc_feature_price,
+        X,
+        V,
+        sobolev_order=sobolev_order,
+        message=f"Generating data with HVPs for {len(X)} samples...",
+    )

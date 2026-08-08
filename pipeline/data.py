@@ -25,6 +25,8 @@ def build_dataset(
         fitted_params,
         config.data.sobolev_order,
         n_samples=config.data.n_samples,
+        pricing_model=config.data.pricing_model,
+        basket=config.basket,
     )
 
 

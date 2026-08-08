@@ -8,6 +8,7 @@ __pycache__/
 
 .cache/
 .DS_Store
+diff-ml-main/
 results/
 data/aapl_chain.json
 
@@ -20,4 +21,5 @@ data/aapl_chain.json
 *.out
 *.synctex.gz
 *.toc
+*.pptx
 Report/report.log

@@ -1,3 +1,5 @@
+import optimistix as optx
+
 from typing import Optional, Tuple
 
 from kalibrierung.calibrator import Calibrator
@@ -5,6 +7,7 @@ from kalibrierung.market_data import MarketData
 from kalibrierung.market_data_loader import MarketDataLoader
 
 from marktsimulation.black_scholes import black_scholes_price
+from marktsimulation.black_scholes_mc import make_mc_calibration_pricer
 from marktsimulation.pricing_model import BlackScholesParams
 
 from pipeline.config import ExperimentConfig
@@ -58,22 +61,55 @@ def _load_market_data(config: ExperimentConfig) -> MarketData:
     )
 
 
+def _calibration_pricer(
+    market_data: MarketData,
+    config: ExperimentConfig,
+):
+    """Closed-form Black-Scholes, or the Monte Carlo simulator instead."""
+
+    if config.market.black_scholes_analytic:
+
+        print(
+            "Pricing engine: analytic Black-Scholes"
+        )
+
+        def analytic_pricer(params, strikes, maturities, is_call):
+            return black_scholes_price(
+                params=params,
+                strikes=strikes,
+                maturities=maturities,
+                is_call=is_call,
+                spot=market_data.spot,
+            )
+
+        return analytic_pricer
+
+    print(
+        f"Pricing engine: Monte Carlo "
+        f"({config.market.mc_calibration_paths} paths, "
+        f"{config.market.mc_calibration_steps} steps, "
+        f"seed {config.market.mc_calibration_seed})"
+    )
+
+    return make_mc_calibration_pricer(
+        spot=market_data.spot,
+        maturities=market_data.maturities,
+        seed=config.market.mc_calibration_seed,
+        num_paths=config.market.mc_calibration_paths,
+        num_steps=config.market.mc_calibration_steps,
+    )
+
+
 def _calibrate(
     market_data: MarketData,
     config: ExperimentConfig,
 ) -> BlackScholesParams:
 
-    def calibration_pricer(params, strikes, maturities, is_call):
-        return black_scholes_price(
-            params=params,
-            strikes=strikes,
-            maturities=maturities,
-            is_call=is_call,
-            spot=market_data.spot,
-        )
-
     calibrator = Calibrator(
-        pricing_fn=calibration_pricer
+        pricing_fn=_calibration_pricer(
+            market_data,
+            config,
+        )
     )
 
     initial_params = BlackScholesParams(
@@ -81,9 +117,17 @@ def _calibrate(
         sigma=config.market.initial_sigma,
     )
 
-    fitted_params, _ = calibrator.calibrate(
+    fitted_params, solution = calibrator.calibrate(
         initial_params,
         market_data,
     )
+
+    # calibrate() runs with throw=False, so a failed solve returns the last
+    # iterate instead of raising; without this the pipeline would train on it
+    if solution.result != optx.RESULTS.successful:
+        print(
+            f"WARNING: calibration did not converge ({solution.result}). "
+            f"Parameters below are the last iterate, not a solution."
+        )
 
     return fitted_params

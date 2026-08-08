@@ -1,7 +1,6 @@
 import jax
 
 from risk_visualisierung.visualizer import Visualizer
-from risk_visualisierung.xva_analysis import run_xva_analysis
 
 from utils.experiment_logger import ExperimentLogger
 
@@ -22,6 +21,7 @@ from pipeline.reporting import (
     print_header,
     save_artifacts,
 )
+from pipeline.risk import run_risk_analysis
 from pipeline.training import train_surrogate
 
 
@@ -71,7 +71,7 @@ def main(config: ExperimentConfig = None):
 
     print_example_prediction(trainer.model, dataset)
 
-    xva = run_xva_analysis(trainer.model, market_data, fitted_params)
+    xva = run_risk_analysis(trainer.model, market_data, fitted_params, config)
 
     save_artifacts(
         logger,

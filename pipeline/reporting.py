@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from kalibrierung.market_data import MarketData
 
@@ -108,7 +108,7 @@ def save_artifacts(
     market_data: MarketData,
     fitted_params: BlackScholesParams,
     metrics: Dict[str, float],
-    xva: Dict[str, float],
+    xva: Optional[Dict[str, float]],
 ) -> None:
 
     logger.save_report(
@@ -136,9 +136,10 @@ def save_artifacts(
         filename="metrics.json",
     )
 
-    logger.save_xva(
-        xva
-    )
+    if xva is not None:
+        logger.save_xva(
+            xva
+        )
 
     logger.save_config(
         training_config
@@ -148,8 +149,20 @@ def save_artifacts(
 def _report_text(
     fitted_params: BlackScholesParams,
     metrics: Dict[str, float],
-    xva: Dict[str, float],
+    xva: Optional[Dict[str, float]],
 ) -> str:
+    xva_block = (
+        f"""
+    CVA      : {xva['CVA']}
+    DVA      : {xva['DVA']}
+    Net XVA  : {xva['NetXVA']}
+    """
+        if xva is not None
+        else """
+    XVA      : not run for this pricing model
+    """
+    )
+
     return f"""
     Experiment Report
     =================
@@ -160,8 +173,4 @@ def _report_text(
     RMSE     : {metrics['RMSE']}
     MAE      : {metrics['MAE']}
     R2       : {metrics['R2']}
-
-    CVA      : {xva['CVA']}
-    DVA      : {xva['DVA']}
-    Net XVA  : {xva['NetXVA']}
-    """
+{xva_block}"""
