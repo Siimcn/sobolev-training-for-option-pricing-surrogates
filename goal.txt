@@ -1,0 +1,50 @@
+The aim of the project is to make use of higher-order Sobolev Training
+for creating surrogates of expensive option pricing models (which typically require
+Monte-Carlo sampling). The existing library should be extended with
+the below to create a JAX/Python based user-friendly risk analysis library.
+
+Original model calibration:
+- Market Data loading
+- Calibration using:
+	- Levenberg-Marquardt (with e.g., optimistix)
+	- Other method? (Up to you)
+
+Market simulation / Forward pricing:
+- Implementation of Milstein scheme (Euler-Maryuama Scheme already exists)
+- Simulation of Basket of Black Scholes / Heston under:
+	- European payoff
+	- Asian payoff
+- Sensitivities (i.e., the "Greeks")
+
+Surrogate Modeling with Sobolev Training:
+- User-friendly, generic training loop
+- Theoretical support for arbitrary neural network architectures (by just accepting JAX models like equinox.nn.MLP)
+- Potential domain-specific training adjustments and fine-tuning methods.
+
+XVA risk using Surrogate Models:
+- Produce near real-time model/market/credit risk
+- Compute corresponding adjustments (i.e., XVA)
+
+Visualization:
+- Basic MC path visualization
+- Basic quantity-of-interest surface plotting
+- Basic sensitivity/risk reporting (text file or stdout)
+
+
+Bonus:
+- Modularize time-stepping schemes to be reusable across models (e.g., Euler scheme not baked into bachelier model)
+- Integration and use of Diffrax for SDE simulation and calibration
+- Neural SDE model fitting with Diffrax
+- Better models
+- American Monte Carlo (early exercise payoff)
+- Better development environment (e.g., supporting uv)
+
+Further resources:
+- Antoine Savine, Differential Machine Learning (another name for Sobolev Training)
+Describes the basic methodology in detail (although I think my thesis is easier to read).
+It also covers XVA which I did not.
+
+- Open Source Risk Engine by LSEG, https://github.com/OpenSourceRisk/Engine
+The user guide, section 2 describes the rough architecture which
+among other things can be taken inspiration from.
+See: https://github.com/OpenSourceRisk/Engine/blob/master/Docs/userguide.pdf

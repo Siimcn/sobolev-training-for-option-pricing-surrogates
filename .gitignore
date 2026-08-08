@@ -1,0 +1,23 @@
+# uv 
+.venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+.cache/
+.DS_Store
+results/
+data/aapl_chain.json
+
+
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+*.toc
+Report/report.log

@@ -1,0 +1,43 @@
+site_name: Sobolev training for option pricing surrogates
+nav:
+    - Home: index.md
+
+    - 1. General:  
+        - 1.1 Introduction: general/intro.md
+        - 1.2 Definitions and terminology: general/definitions.md
+
+    - 2. Preparation:
+        - 2.1 Preparation: preparation/preparation.md
+
+    - 3. Code structure:
+        - 3.1 Overview: code_structure/code_structure.md
+        - 3.2 kalibrierung: code_structure/kalibrierung.md
+        - 3.3 marktsimulation: code_structure/marktsimulation.md
+        - 3.4 surrogate_modeling: code_structure/surrogate_modeling.md
+        - 3.5 risk_visualisierung: code_structure/risk_visualisierung.md
+        - 3.6 utils: code_structure/utils.md
+        
+
+
+theme: material
+
+
+
+
+plugins:
+    - search
+    - print-site:
+        add_to_navigation: true
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

@@ -1,0 +1,148 @@
+\documentclass{book}
+ 
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsxtra}
+\usepackage{graphicx}
+\usepackage{listings}
+ 
+\newcommand{\refchapter}[1]{Chapter~\ref{#1}}
+\newcommand{\refsec}[1]{Section~\ref{#1}}
+\newcommand{\refeqn}[1]{Equation~(\ref{#1})}
+\newcommand{\reffig}[1]{Figure~\ref{#1}}
+ 
+\begin{document}
+ 
+\lstloadlanguages{[ISO]C++}
+\lstset{basicstyle=\small, numbers=left, numberstyle=\footnotesize,
+  stepnumber=1, numbersep=5pt, breaklines=true, escapeinside={/*@}{@*/}}
+ 
+\pagestyle{headings}
+ 
+% ---------- Title page ----------
+\begin{titlepage}
+  \centering
+ 
+  \includegraphics[width=.55\textwidth]{rwth_i12_softw-werkz_en_rgb}
+ 
+  \vspace{2.5cm}
+ 
+  {\LARGE\bfseries Sobolev Training for\\[.3em]
+   Option Pricing Surrogates\par}
+ 
+  \vspace{.8cm}
+ 
+  {\large Software Lab Computational Engineering Science\\[.2em]
+   Final Report\par}
+ 
+  \vspace{2.5cm}
+ 
+  {\large\itshape Group 7\par}
+  \vspace{.6cm}
+  {\large
+   Yan Liu \\[.25em]
+   Marin Zhuka \\[.25em]
+   Karl Holtmannspötter \\[.25em]
+   Simon Rings \\[.25em]
+   Ole Stappen \par}
+ 
+  \vfill
+ 
+  {\large Supervisor: Neil Kichler\\[.2em]
+   \normalsize Informatik 12: Software and Tools for Computational
+   Engineering (STCE)\\ RWTH Aachen University\par}
+ 
+  \vspace{1cm}
+ 
+  {\large August 2026\par}
+ 
+\end{titlepage}
+% ---------- End title page ----------
+\tableofcontents
+
+\chapter*{Preface}
+
+\begin{itemize}
+\item administrative information about the project (e.g, topic issued by which institute)
+\item fit of topic into study program (e.g, sufficient prior knowledge)
+\item acknowledgement of supervision
+\end{itemize}
+
+\chapter{Analysis} \label{ch:analysis}
+
+\section{User Requirements}
+
+user requirements explained (includes essential information and references into literature on technical background of the topic, e.g, \cite{Ries1522Rad}) based on UML Use Case diagram(s)
+
+\section{System Requirements}
+
+functional and non-functional system requirements explained
+
+\chapter{Design} \label{ch:design}
+
+\section{Principal Components and Third-Party Software}
+
+libraries that you built on explained briefly and references to further information
+
+\section{Class Models}
+
+UML Class diagram(s) and description; should link into overall design through
+reference of application programming interfaces (API) of third-party software
+
+\chapter{Implementation} \label{ch:implementation}
+\chapter{Implementation} \label{ch:implementation}
+
+\section{Development Infrastructure}
+
+Wir haben das Projekt in Python umgesetzt. Als Grundlage nutzen wir JAX für die numerischen Berechnungen, Equinox für die Modellkomponenten und Optimistix für die Kalibrierung. Für das Laden der Marktdaten verwenden wir zusätzlich \texttt{yfinance}.
+
+\section{Kalibrierung}
+
+Die Kalibrierung ist der erste praktische Schritt unserer Pipeline. Dabei werden echte Marktdaten mit dem Black-Scholes-Modell verglichen, damit die Modellparameter sinnvoll angepasst werden können.
+
+Die Marktdaten werden über den \texttt{MarketDataLoader} aus Yahoo Finance geladen. Danach werden nur liquide Optionen behalten, also Kontrakte mit positivem Bid/Ask, genügend Volumen und Open Interest. Aus Bid und Ask wird ein Mid Price gebildet.
+
+Die Daten werden in \texttt{MarketData} gesammelt. Dort sind Spot, Strikes, Laufzeiten, Marktpreise, Calls/Puts und Gewichte zusammengefasst. Außerdem prüft die Klasse direkt, ob die Arrays zusammenpassen.
+
+Die eigentliche Optimierung übernimmt \texttt{Calibrator}. Dabei werden die Modellpreise mit den Marktpreisen verglichen und mit Levenberg-Marquardt minimiert. In \texttt{main.py} wird dafür eine kleine Wrapper-Funktion verwendet, die das Black-Scholes-Modell mit dem aktuellen Spot verbindet. Als Startwert nehmen wir eine erste Schätzung für \texttt{sigma}.
+
+Die Kalibrierung ist nicht als einzelner Schritt gedacht, sondern als Startpunkt für den Rest der Pipeline. Erst danach werden die Sobolev-Daten erzeugt, das Surrogat trainiert und die Risikoanalyse ausgeführt. So bauen alle Teile auf denselben Modellparametern auf.
+
+\section{Source Code}
+
+Der Code ist in mehrere Pakete aufgeteilt. \texttt{kalibrierung} enthält das Laden der Marktdaten und die Kalibrierung, \texttt{marktsimulation} die Preisfunktionen und \texttt{surrogate\_modeling} das Sobolev-Training. Die Risikoberechnung liegt in \texttt{risk\_visualisierung}.
+
+Die zentrale Einstiegstelle ist \texttt{main.py}. Dort werden die Schritte nacheinander ausgeführt: Marktdaten laden, kalibrieren, Dataset erzeugen, Surrogat trainieren und Ergebnisse auswerten. Das hält den Ablauf übersichtlich und macht Debugging einfacher.
+
+\section{Software Tests}
+
+Für die Tests haben wir vor allem auf Plausibilität und einen durchlaufenden Gesamtworkflow geachtet. Wichtig war, dass die Marktdaten geladen werden können, die Kalibrierung läuft und am Ende sinnvolle Parameter zurückkommen.
+
+Zusätzlich haben wir die komplette Pipeline einmal mit einem realen Marktsnapshot ausgeführt. So konnten wir prüfen, dass die einzelnen Module auch zusammen sauber funktionieren.
+
+\chapter{Project Management} \label{ch:projectmanagement}
+
+who did what, when, and why; organization of collaboration, i.e. [online] meetings, software version control (e.g, git\footnote{\tt https://git.rwth-aachen.de}
+
+\bibliographystyle{plain}
+\bibliography{literature}
+
+\appendix
+
+\chapter{User Documentation} \label{ch:userdoc}
+
+\section{Building}
+
+e.g, using cmake\footnote{\tt https://cmake.org/} and make\footnote{\tt https://www.gnu.org/software/make/}
+
+
+\section{Testing}
+
+e.g, \verb!make test!
+
+\section{Running}
+
+documented sample session(s); e.g, \verb!make run!
+
+\end{document}
+
