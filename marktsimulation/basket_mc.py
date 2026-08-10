@@ -60,6 +60,22 @@ def uniform_correlation(n_assets: int, rho: float) -> jnp.ndarray:
     )
 
 
+def is_exchangeable(weights: jnp.ndarray, sigmas: jnp.ndarray, corr: jnp.ndarray) -> bool:
+    """
+    True when permuting the spots leaves the true price unchanged: equal
+    weights, equal vols and a correlation matrix with one off-diagonal
+    value. Only then may the price function be symmetrized.
+    """
+
+    off_diagonal = corr[~jnp.eye(len(corr), dtype=bool)]
+
+    return bool(
+        jnp.allclose(weights, weights[0])
+        and jnp.allclose(sigmas, sigmas[0])
+        and (len(off_diagonal) == 0 or jnp.allclose(off_diagonal, off_diagonal[0]))
+    )
+
+
 def make_basket_feature_price(
     weights: jnp.ndarray,
     corr: jnp.ndarray,
@@ -69,6 +85,7 @@ def make_basket_feature_price(
     num_steps: int = 50,
     seed: int = 0,
     smooth_fraction: float = 0.05,
+    symmetrize: bool = False,
 ):
     """
     Build `f(x) -> price` for a basket call, with the feature layout
@@ -81,9 +98,22 @@ def make_basket_feature_price(
 
     The key is fixed so every label in a dataset shares its random
     numbers, exactly as bs_mc_price does.
+
+    With `symmetrize` the spots are sorted before pricing. Asset i draws
+    Brownian column i, so the raw estimator is not invariant under
+    permuting the spots even though the true price is - it teaches the
+    network an asymmetry that does not exist. Sorting picks one
+    representative per orbit and restores the invariance exactly, at no
+    extra cost; the gradient permutes back correctly.
     """
 
     n_assets = len(weights)
+
+    if symmetrize and not is_exchangeable(weights, sigmas, corr):
+        raise ValueError(
+            "symmetrize requires an exchangeable basket: equal weights, "
+            "equal volatilities and a uniform correlation."
+        )
 
     model = BasketBlackScholesModel(scheme=EulerMaruyama())
 
@@ -99,7 +129,7 @@ def make_basket_feature_price(
     sigma_mean = jnp.mean(sigmas)
 
     def price_fn(x: jnp.ndarray) -> jnp.ndarray:
-        s0 = x[:n_assets]
+        s0 = jnp.sort(x[:n_assets]) if symmetrize else x[:n_assets]
         strike = x[n_assets]
         maturity = x[n_assets + 1]
 
@@ -122,6 +152,54 @@ def make_basket_feature_price(
         )
 
     return price_fn
+
+
+def generate_basket_training_paths(
+    x: jnp.ndarray,
+    weights: jnp.ndarray,
+    corr: jnp.ndarray,
+    sigmas: jnp.ndarray,
+    r: float,
+    num_paths: int = 100,
+    num_steps: int = 50,
+    seed: int = 0,
+):
+    """
+    Basket value paths behind one training label, with x = [S_1, ..., S_n, K, T].
+
+    Returns the weighted basket, which is what the option is written on,
+    rather than the individual assets.
+    """
+
+    n_assets = len(weights)
+
+    s0 = x[:n_assets]
+    maturity = x[n_assets + 1]
+
+    model = BasketBlackScholesModel(scheme=EulerMaruyama())
+
+    params = BasketBlackScholesParams(
+        r=r,
+        sigmas=sigmas,
+        weights=weights,
+        corr=corr,
+    )
+
+    paths = model.scheme.generate_paths(
+        s0=s0,
+        drift_fn=model.drift,
+        diffusion_fn=model.diffusion,
+        params=params,
+        key=jax.random.PRNGKey(seed),
+        num_paths=num_paths,
+        num_steps=num_steps,
+        dt=maturity / num_steps,
+        corr=model.noise_correlation(params),
+    )
+
+    time_grid = jnp.linspace(0.0, maturity, num_steps + 1)
+
+    return time_grid, jnp.sum(paths * weights, axis=-1)
 
 
 def basket_greeks(

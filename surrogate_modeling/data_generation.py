@@ -46,8 +46,31 @@ def _spot_range(market_data, fitted_params, xva_horizon, domain_n_sigma):
     )
 
 
+def _maturity_range(market_data, min_maturity):
+    """
+    Market maturities, optionally floored. The shortest expiries carry a
+    near-discontinuous payoff, so their curvature labels are orders of
+    magnitude larger than the rest of the domain.
+    """
+
+    low = float(jnp.min(market_data.maturities))
+    high = float(jnp.max(market_data.maturities))
+
+    if min_maturity is not None:
+        low = max(low, float(min_maturity))
+
+    if low >= high:
+        raise ValueError(
+            f"min_maturity {min_maturity} leaves no maturity range below "
+            f"the longest market expiry {high}."
+        )
+
+    return low, high
+
+
 def _black_scholes_domain(
-    u, market_data, fitted_params, r_spread, xva_horizon, domain_n_sigma
+    u, market_data, fitted_params, r_spread, xva_horizon, domain_n_sigma,
+    min_maturity=None,
 ):
     """x = [S, K, T, sigma, r]"""
 
@@ -66,11 +89,7 @@ def _black_scholes_domain(
     )
 
     X = X.at[:, 2].set(
-        _uniform(
-            u[:, 2],
-            float(jnp.min(market_data.maturities)),
-            float(jnp.max(market_data.maturities)),
-        )
+        _uniform(u[:, 2], *_maturity_range(market_data, min_maturity))
     )
 
     X = X.at[:, 3].set(
@@ -91,7 +110,8 @@ def _black_scholes_domain(
 
 
 def _basket_domain(
-    u, market_data, fitted_params, n_assets, xva_horizon, domain_n_sigma
+    u, market_data, fitted_params, n_assets, xva_horizon, domain_n_sigma,
+    min_maturity=None,
 ):
     """x = [S_1, ..., S_n, K, T]"""
 
@@ -113,11 +133,7 @@ def _basket_domain(
     )
 
     X = X.at[:, n_assets + 1].set(
-        _uniform(
-            u[:, n_assets + 1],
-            float(jnp.min(market_data.maturities)),
-            float(jnp.max(market_data.maturities)),
-        )
+        _uniform(u[:, n_assets + 1], *_maturity_range(market_data, min_maturity))
     )
 
     return X
@@ -132,6 +148,7 @@ def create_sobolev_dataset(
     seed: int = 0,
     xva_horizon: float = 1.0,
     domain_n_sigma: float = 3.0,
+    min_maturity=None,
     pricing_model: str = BLACK_SCHOLES,
     basket=None,
 ) -> SobolevDataset:
@@ -164,14 +181,15 @@ def create_sobolev_dataset(
 
     if pricing_model == BLACK_SCHOLES:
         X = _black_scholes_domain(
-            u, market_data, fitted_params, r_spread, xva_horizon, domain_n_sigma
+            u, market_data, fitted_params, r_spread, xva_horizon,
+            domain_n_sigma, min_maturity,
         )
         price_fn = bs_mc_feature_price
         label = "BS"
     else:
         X = _basket_domain(
             u, market_data, fitted_params, basket.n_assets,
-            xva_horizon, domain_n_sigma,
+            xva_horizon, domain_n_sigma, min_maturity,
         )
         price_fn = _basket_price_fn(basket, fitted_params)
         label = f"basket BS ({basket.n_assets} assets)"
@@ -203,18 +221,13 @@ def create_sobolev_dataset(
 def _basket_price_fn(basket, fitted_params):
     """All assets share the calibrated vol and rate; only spots vary in x."""
 
-    weights = (
-        jnp.asarray(basket.weights)
-        if basket.weights is not None
-        else jnp.full(basket.n_assets, 1.0 / basket.n_assets)
-    )
-
     return make_basket_feature_price(
-        weights=weights,
+        weights=jnp.asarray(basket.resolved_weights),
         corr=uniform_correlation(basket.n_assets, basket.correlation),
         sigmas=jnp.full(basket.n_assets, fitted_params.sigma),
         r=fitted_params.r,
         num_paths=basket.num_paths,
         num_steps=basket.num_steps,
         seed=basket.label_seed,
+        symmetrize=basket.symmetrize,
     )

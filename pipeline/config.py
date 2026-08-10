@@ -7,7 +7,7 @@ from surrogate_modeling.data_generation import (
     BLACK_SCHOLES,
     PRICING_MODELS,
 )
-from surrogate_modeling.training_config import TrainingConfig
+from surrogate_modeling.training_config import PRICE_GRADIENT, TrainingConfig
 
 __all__ = [
     "BASKET_BLACK_SCHOLES",
@@ -72,16 +72,34 @@ class BasketConfig:
     num_steps: int = 50
     label_seed: int = 0
 
+    # Sort the spots before pricing. The true price is invariant under
+    # permuting them, the MC estimator is not; sorting restores that
+    # exactly. Requires an exchangeable basket, so turn it off for
+    # custom weights.
+    symmetrize: bool = True
+
+    @property
+    def resolved_weights(self) -> Tuple[float, ...]:
+        if self.weights is not None:
+            return self.weights
+
+        return tuple([1.0 / self.n_assets] * self.n_assets)
+
 
 @dataclass(frozen=True)
 class DataConfig:
 
     # what the surrogate learns to price; see PRICING_MODELS
-    pricing_model: str = BLACK_SCHOLES
+    pricing_model: str = BASKET_BLACK_SCHOLES
 
     n_samples: int = 1200
     sobolev_order: int = 2
     train_fraction: float = 0.8
+
+    # Floor on the sampled maturity. The shortest market expiries produce
+    # curvature labels thousands of times larger than the rest of the
+    # domain, which the pooled HVP error then reports almost exclusively.
+    min_maturity: float = 0.05
 
     preview_sample_indices: Tuple[int, ...] = (0, 50, 100)
     preview_num_paths: int = 100
@@ -114,7 +132,13 @@ def _training_config() -> TrainingConfig:
 
         early_stopping=True,
         patience=50,
-        min_delta=1e-4,
+
+        # relative, so the criterion keeps its meaning as the loss shrinks;
+        # on price+gradient, because the HVP term carries ~85% of the
+        # objective's magnitude and cannot be learned to that precision
+        min_delta=1e-6,
+        min_delta_relative=1e-3,
+        selection_metric=PRICE_GRADIENT,
 
         seed=42,
         print_every=10,

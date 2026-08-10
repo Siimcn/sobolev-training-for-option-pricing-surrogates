@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 
 
+TOTAL = "total"
+PRICE_GRADIENT = "price_gradient"
+
+SELECTION_METRICS = (TOTAL, PRICE_GRADIENT)
+
+
 @dataclass(frozen=True)
 class TrainingConfig:
 
@@ -19,7 +25,19 @@ class TrainingConfig:
 
     early_stopping: bool = True
     patience: int = 50
+
+    # Improvement threshold. min_delta is absolute; when
+    # min_delta_relative is set it takes over from the second epoch on and
+    # scales with the current best, so the criterion keeps its meaning as
+    # the loss shrinks instead of degenerating into a noise detector.
     min_delta: float = 1e-6
+    min_delta_relative: float = 0.0
+
+    # Which validation quantity drives early stopping and best-model
+    # selection. TOTAL is the Sobolev objective, whose magnitude the HVP
+    # term dominates; PRICE_GRADIENT drops that term, so the checkpoint is
+    # chosen on the parts the model can actually learn.
+    selection_metric: str = "total"
 
     seed: int = 42
 
@@ -60,4 +78,15 @@ class TrainingConfig:
         if self.lambda_hessian < 0:
             raise ValueError(
                 "lambda_hessian must be non-negative."
+            )
+
+        if self.min_delta_relative < 0:
+            raise ValueError(
+                "min_delta_relative must be non-negative."
+            )
+
+        if self.selection_metric not in SELECTION_METRICS:
+            raise ValueError(
+                f"selection_metric must be one of: "
+                f"{', '.join(SELECTION_METRICS)}."
             )

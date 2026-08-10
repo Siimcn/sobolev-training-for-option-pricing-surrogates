@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import equinox as eqx
 import optax
 import copy
+import math
 
 from typing import Dict, List, Optional
 
@@ -22,6 +23,7 @@ from surrogate_modeling.metrics import (
 )
 
 from surrogate_modeling.training_config import (
+    PRICE_GRADIENT,
     TrainingConfig,
 )
 
@@ -134,6 +136,39 @@ class SobolevTrainer:
             price_scale_floor=price_floor,
             price_scale_ceiling=price_ceiling,
         )
+
+    def _selection_loss(self, valid_loss, valid_metrics) -> float:
+        """
+        The quantity early stopping and checkpointing compare.
+
+        Under PRICE_GRADIENT the HVP term is dropped and the remaining two
+        are renormalized, so the criterion keeps the objective's balance
+        between price and gradient without being swamped by the noisiest
+        term.
+        """
+
+        if self.config.selection_metric != PRICE_GRADIENT:
+            return float(valid_loss)
+
+        alpha = float(valid_metrics["alpha"])
+        beta = float(valid_metrics["beta"])
+
+        weighted = alpha * float(valid_metrics["price_loss"])
+
+        if "gradient_loss" in valid_metrics:
+            weighted += beta * float(valid_metrics["gradient_loss"])
+        else:
+            beta = 0.0
+
+        return weighted / max(alpha + beta, 1e-12)
+
+    def _improvement_threshold(self, best_loss: float) -> float:
+        """Relative once a finite best exists, so the first epoch always counts."""
+
+        if self.config.min_delta_relative > 0.0 and math.isfinite(best_loss):
+            return self.config.min_delta_relative * abs(best_loss)
+
+        return self.config.min_delta
 
     @eqx.filter_jit
     def train_step(
@@ -381,18 +416,22 @@ class SobolevTrainer:
                     float(valid_metrics.get("hessian_loss", 0.0))
                 )
 
+                selection_loss = self._selection_loss(
+                    valid_loss, valid_metrics
+                )
+
                 # best-checkpoint tracking always runs, even if early_stopping
                 # is off, since `model = best_model` runs unconditionally below
                 improvement = (
-                    best_loss - valid_loss
+                    best_loss - selection_loss
                 )
 
                 if (
                     improvement
-                    > self.config.min_delta
+                    > self._improvement_threshold(best_loss)
                 ):
 
-                    best_loss = valid_loss
+                    best_loss = selection_loss
 
                     best_model = copy.deepcopy(
                         model

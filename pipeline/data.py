@@ -1,7 +1,13 @@
+import jax.numpy as jnp
+
 from typing import Tuple
 
 from kalibrierung.market_data import MarketData
 
+from marktsimulation.basket_mc import (
+    generate_basket_training_paths,
+    uniform_correlation,
+)
 from marktsimulation.black_scholes_mc import generate_training_paths
 from marktsimulation.pricing_model import BlackScholesParams
 
@@ -25,6 +31,7 @@ def build_dataset(
         fitted_params,
         config.data.sobolev_order,
         n_samples=config.data.n_samples,
+        min_maturity=config.data.min_maturity,
         pricing_model=config.data.pricing_model,
         basket=config.basket,
     )
@@ -32,39 +39,27 @@ def build_dataset(
 
 def plot_training_path_samples(
     dataset: SobolevDataset,
+    fitted_params: BlackScholesParams,
     config: ExperimentConfig,
 ) -> None:
     print(
         "\nGenerating training Monte Carlo paths..."
     )
 
+    paths_for = _path_generator(fitted_params, config)
+
     for i in config.data.preview_sample_indices:
 
-        time_grid_train, train_paths = (
-            generate_training_paths(
-                dataset.X[i]
-            )
-        )
+        time_grid_train, train_paths = paths_for(dataset.X[i])
 
         print(
             f"\nSample {i}:"
         )
 
-        print(
-            f"S     = {dataset.X[i,0]:.2f}"
-        )
-
-        print(
-            f"K     = {dataset.X[i,1]:.2f}"
-        )
-
-        print(
-            f"T     = {dataset.X[i,2]:.2f}"
-        )
-
-        print(
-            f"sigma = {dataset.X[i,3]:.4f}"
-        )
+        # the feature layout depends on the pricing model, so label the
+        # values from the config rather than assuming [S, K, T, sigma, r]
+        for name, value in zip(config.feature_names, dataset.X[i]):
+            print(f"{name:6s}= {float(value):.4f}")
 
         Visualizer.plot_mc_paths(
             time_grid_train,
@@ -72,6 +67,27 @@ def plot_training_path_samples(
             num_paths=config.data.preview_num_paths,
             filename=f"training_paths_{i}.png",
         )
+
+
+def _path_generator(
+    fitted_params: BlackScholesParams,
+    config: ExperimentConfig,
+):
+    if not config.is_basket:
+        return generate_training_paths
+
+    return lambda x: generate_basket_training_paths(
+        x,
+        weights=jnp.asarray(config.basket.resolved_weights),
+        corr=uniform_correlation(
+            config.basket.n_assets, config.basket.correlation
+        ),
+        sigmas=jnp.full(config.basket.n_assets, fitted_params.sigma),
+        r=fitted_params.r,
+        num_paths=config.data.preview_num_paths,
+        num_steps=config.basket.num_steps,
+        seed=config.basket.label_seed,
+    )
 
 
 def split_dataset(

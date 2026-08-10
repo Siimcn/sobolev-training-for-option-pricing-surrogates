@@ -10,6 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 from kalibrierung.market_data import MarketData
 from marktsimulation.basket_mc import (
+    is_exchangeable,
     make_basket_feature_price,
     uniform_correlation,
 )
@@ -22,6 +23,7 @@ from pipeline.config import (
     DataConfig,
     ExperimentConfig,
 )
+from surrogate_modeling.data_generation import PRICING_MODELS
 from surrogate_modeling.data_generation import create_sobolev_dataset
 
 
@@ -58,12 +60,21 @@ def _dataset(pricing_model, basket=None, n_samples=3, sobolev_order=2):
 
 # ------------------------------------------------------------------ config
 
-def test_default_is_black_scholes():
-    config = ExperimentConfig()
+def test_configured_default_is_a_known_model():
+    # which model is the default is a config choice, not a contract
+    assert ExperimentConfig().data.pricing_model in PRICING_MODELS
 
-    assert config.data.pricing_model == BLACK_SCHOLES
+
+def test_black_scholes_selection():
+    config = ExperimentConfig(data=DataConfig(pricing_model=BLACK_SCHOLES))
+
     assert not config.is_basket
     assert config.feature_names == ("S", "K", "T", "sigma", "r")
+
+
+def test_weights_default_to_equal_shares():
+    assert BasketConfig(n_assets=4).resolved_weights == (0.25, 0.25, 0.25, 0.25)
+    assert BasketConfig(n_assets=2, weights=(0.3, 0.7)).resolved_weights == (0.3, 0.7)
 
 
 def test_basket_selection_changes_the_feature_names():
@@ -213,6 +224,52 @@ def test_sobolev_order_one_skips_the_hvps():
     assert dataset.gradients is not None
 
 
+def test_preview_paths_read_the_right_feature_layout():
+    # regression: the single-asset generator reads maturity from x[2] and
+    # sigma from x[3], which for a basket are S_3 and K - that produced
+    # paths of order 1e151 and negative prices
+    from pipeline.data import _path_generator
+
+    fitted = _params()
+
+    for config, x, horizon in [
+        (
+            ExperimentConfig(data=DataConfig(pricing_model=BLACK_SCHOLES)),
+            jnp.array([312.34, 300.0, 0.83, 0.2883, 0.0414]),
+            0.83,
+        ),
+        (
+            ExperimentConfig(
+                data=DataConfig(pricing_model=BASKET_BLACK_SCHOLES),
+                basket=BasketConfig(n_assets=3, num_steps=20),
+            ),
+            jnp.array([180.73, 695.27, 579.35, 362.39, 0.83]),
+            0.83,
+        ),
+    ]:
+        time_grid, paths = _path_generator(fitted, config)(x)
+
+        assert abs(float(time_grid[-1]) - horizon) < 1e-9
+        assert bool(jnp.all(jnp.isfinite(paths)))
+        assert bool(jnp.all(paths > 0.0))
+        assert float(jnp.max(paths)) < 1e5
+
+
+def test_basket_preview_paths_start_at_the_weighted_basket():
+    from pipeline.data import _path_generator
+
+    config = ExperimentConfig(
+        data=DataConfig(pricing_model=BASKET_BLACK_SCHOLES),
+        basket=BasketConfig(n_assets=3, num_steps=20),
+    )
+
+    x = jnp.array([180.73, 695.27, 579.35, 362.39, 0.83])
+
+    _, paths = _path_generator(_params(), config)(x)
+
+    assert abs(float(paths[0, 0]) - float(jnp.mean(x[:3]))) < 1e-9
+
+
 def test_unknown_pricing_model_rejected_by_the_generator():
     try:
         _dataset("heston", n_samples=1)
@@ -222,9 +279,113 @@ def test_unknown_pricing_model_rejected_by_the_generator():
         assert False, "an unknown pricing model should raise"
 
 
+def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
+    w = jnp.full(n, 1.0 / n) if weights is None else jnp.asarray(weights)
+
+    return make_basket_feature_price(
+        weights=w,
+        corr=uniform_correlation(n, rho),
+        sigmas=jnp.full(n, SIGMA),
+        r=R,
+        num_paths=6_000,
+        num_steps=20,
+        symmetrize=symmetrize,
+    )
+
+
+def test_raw_estimator_is_not_permutation_invariant():
+    # documents why symmetrize exists: asset i draws Brownian column i
+    price_fn = _basket_pricer(symmetrize=False)
+
+    values = [
+        float(price_fn(jnp.array(list(spots) + [110.0, 0.8])))
+        for spots in [(80.0, 100.0, 130.0), (130.0, 80.0, 100.0), (100.0, 130.0, 80.0)]
+    ]
+
+    assert max(values) - min(values) > 1e-6
+
+
+def test_symmetrize_makes_the_price_permutation_invariant():
+    price_fn = _basket_pricer(symmetrize=True)
+
+    values = [
+        float(price_fn(jnp.array(list(spots) + [110.0, 0.8])))
+        for spots in [(80.0, 100.0, 130.0), (130.0, 80.0, 100.0), (100.0, 130.0, 80.0)]
+    ]
+
+    assert max(values) - min(values) == 0.0
+
+
+def test_symmetrized_gradient_permutes_with_the_input():
+    price_fn = _basket_pricer(symmetrize=True)
+
+    g = jax.grad(price_fn)(jnp.array([80.0, 100.0, 130.0, 110.0, 0.8]))
+    g_rolled = jax.grad(price_fn)(jnp.array([130.0, 80.0, 100.0, 110.0, 0.8]))
+
+    assert bool(jnp.allclose(jnp.array([g_rolled[1], g_rolled[2], g_rolled[0]]), g[:3]))
+    assert bool(jnp.all(g[:3] > 0.0))
+
+
+def test_symmetrized_price_stays_twice_differentiable():
+    price_fn = _basket_pricer(symmetrize=True)
+
+    x = jnp.array([80.0, 100.0, 130.0, 110.0, 0.8])
+    hvp = jax.jvp(jax.grad(price_fn), (x,), (jnp.ones(5),))[1]
+
+    assert bool(jnp.all(jnp.isfinite(hvp)))
+
+
+def test_exchangeability_check():
+    w, s = jnp.full(3, 1 / 3), jnp.full(3, SIGMA)
+
+    assert is_exchangeable(w, s, uniform_correlation(3, 0.5))
+    assert not is_exchangeable(jnp.array([0.5, 0.3, 0.2]), s, uniform_correlation(3, 0.5))
+    assert not is_exchangeable(w, jnp.array([0.1, 0.2, 0.3]), uniform_correlation(3, 0.5))
+
+
+def test_symmetrize_rejects_a_non_exchangeable_basket():
+    try:
+        _basket_pricer(symmetrize=True, weights=(0.5, 0.3, 0.2))
+    except ValueError as e:
+        assert "exchangeable" in str(e)
+    else:
+        assert False, "unequal weights with symmetrize should raise"
+
+
+def test_min_maturity_floors_the_sampled_maturities():
+    basket = BasketConfig(n_assets=3, num_paths=2_000, num_steps=10)
+
+    floored = create_sobolev_dataset(
+        _market_data(), _params(), 1, n_samples=16,
+        min_maturity=0.4, pricing_model=BASKET_BLACK_SCHOLES, basket=basket,
+    )
+
+    assert bool(jnp.all(floored.X[:, 4] >= 0.4))
+
+    unfloored = create_sobolev_dataset(
+        _market_data(), _params(), 1, n_samples=16,
+        pricing_model=BASKET_BLACK_SCHOLES, basket=basket,
+    )
+
+    assert float(jnp.min(unfloored.X[:, 4])) < 0.4
+
+
+def test_min_maturity_above_the_longest_expiry_raises():
+    try:
+        create_sobolev_dataset(
+            _market_data(), _params(), 1, n_samples=2, min_maturity=5.0,
+        )
+    except ValueError as e:
+        assert "min_maturity" in str(e)
+    else:
+        assert False, "an unreachable maturity floor should raise"
+
+
 if __name__ == "__main__":
     for check in [
-        test_default_is_black_scholes,
+        test_configured_default_is_a_known_model,
+        test_black_scholes_selection,
+        test_weights_default_to_equal_shares,
         test_basket_selection_changes_the_feature_names,
         test_unknown_pricing_model_is_rejected,
         test_weight_length_must_match_asset_count,
@@ -236,7 +397,17 @@ if __name__ == "__main__":
         test_basket_dataset_shapes_follow_the_asset_count,
         test_basket_domain_respects_the_market_ranges,
         test_sobolev_order_one_skips_the_hvps,
+        test_preview_paths_read_the_right_feature_layout,
+        test_basket_preview_paths_start_at_the_weighted_basket,
         test_unknown_pricing_model_rejected_by_the_generator,
+        test_raw_estimator_is_not_permutation_invariant,
+        test_symmetrize_makes_the_price_permutation_invariant,
+        test_symmetrized_gradient_permutes_with_the_input,
+        test_symmetrized_price_stays_twice_differentiable,
+        test_exchangeability_check,
+        test_symmetrize_rejects_a_non_exchangeable_basket,
+        test_min_maturity_floors_the_sampled_maturities,
+        test_min_maturity_above_the_longest_expiry_raises,
     ]:
         check()
         print(f"[PASS] {check.__name__}")

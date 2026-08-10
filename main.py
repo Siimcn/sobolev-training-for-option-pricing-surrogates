@@ -44,7 +44,7 @@ def main(config: ExperimentConfig = None):
     market_data, fitted_params = market
 
     dataset = build_dataset(market_data, fitted_params, config)
-    plot_training_path_samples(dataset, config)
+    plot_training_path_samples(dataset, fitted_params, config)
 
     train_dataset, test_dataset = split_dataset(dataset, config)
 
