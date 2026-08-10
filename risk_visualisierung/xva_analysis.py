@@ -14,6 +14,7 @@ def run_xva_analysis(
     num_paths: int = 100,
     num_steps: int = 252,
     seed: int = 0,
+    min_maturity: float = 0.0,
 ) -> Optional[Dict[str, float]]:
     """
     Exposure profiles and XVA along a simulated future.
@@ -24,6 +25,11 @@ def run_xva_analysis(
     skipped; one without a closed form is priced by the surrogate alone
     and reported without the reference column, rather than being compared
     against a formula that does not apply to it.
+
+    `min_maturity` is the training-domain floor. The profile stops there
+    instead of running the remaining maturity to zero, which used to push
+    the surrogate outside the region it was fitted on and produced
+    negative values - and hence a non-zero DVA on a long call.
     """
 
     strikes = problem.exposure_strikes()
@@ -41,6 +47,7 @@ def run_xva_analysis(
             num_paths=num_paths,
             num_steps=num_steps,
             seed=seed,
+            min_maturity=min_maturity,
         )
         for label, strike in strikes.items()
     }

@@ -65,11 +65,15 @@ def _trainer(dataset, **overrides):
     return SobolevTrainer(surrogate, TrainingConfig(**base))
 
 
-def test_defaults_keep_the_previous_behaviour():
+def test_defaults_select_on_the_full_objective():
+    # selecting on price+gradient was measured to stop while the curvature
+    # term was still descending; TOTAL is the research objective itself
     config = TrainingConfig()
 
     assert config.selection_metric == TOTAL
-    assert config.min_delta_relative == 0.0
+    assert config.min_delta_relative > 0.0
+    assert config.lr_schedule == "cosine"
+    assert config.gradient_clip is not None
 
     config.validate()
 
@@ -185,7 +189,7 @@ def test_training_still_learns_with_the_new_selection():
 
 if __name__ == "__main__":
     for check in [
-        test_defaults_keep_the_previous_behaviour,
+        test_defaults_select_on_the_full_objective,
         test_config_rejects_invalid_selection_settings,
         test_absolute_threshold_is_used_on_the_first_epoch,
         test_relative_threshold_scales_with_the_loss,

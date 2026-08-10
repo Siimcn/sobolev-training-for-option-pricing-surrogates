@@ -2,12 +2,10 @@ from typing import Dict, List, Optional
 
 from kalibrierung.market_data import MarketData
 
-from marktsimulation.pricing_model import BlackScholesParams
-
 from risk_visualisierung.visualizer import Visualizer
 
 from surrogate_modeling.dataset import SobolevDataset
-from surrogate_modeling.pricing_problem import PricingProblem
+from surrogate_modeling.pricing_problem import CalibrationResult, PricingProblem
 from surrogate_modeling.surrogate_model import SurrogateModel
 
 from pipeline.config import ExperimentConfig
@@ -93,18 +91,18 @@ def save_artifacts(
     config: ExperimentConfig,
     problem: PricingProblem,
     market_data: MarketData,
-    fitted_params: BlackScholesParams,
+    calibration: CalibrationResult,
     metrics: Dict[str, float],
     validation: Optional[Dict[str, float]],
     xva: Optional[Dict[str, float]],
 ) -> None:
 
     logger.save_report(
-        _report_text(problem, fitted_params, metrics, validation, xva)
+        _report_text(problem, calibration, metrics, validation, xva)
     )
 
     logger.save_calibration(
-        fitted_params,
+        calibration.params,
         market_data.spot,
     )
 
@@ -113,10 +111,10 @@ def save_artifacts(
             **metrics,
             **(validation or {}),
             "CalibratedSigma": float(
-                fitted_params.sigma
+                calibration.params.sigma
             ),
             "CalibratedRate": float(
-                fitted_params.r
+                calibration.params.r
             ),
             "Spot": float(
                 market_data.spot
@@ -137,7 +135,7 @@ def save_artifacts(
 
 def _report_text(
     problem: PricingProblem,
-    fitted_params: BlackScholesParams,
+    calibration: CalibrationResult,
     metrics: Dict[str, float],
     validation: Optional[Dict[str, float]],
     xva: Optional[Dict[str, float]],
@@ -156,9 +154,17 @@ def _report_text(
     )
 
     validation_block = (
-        "".join(f"    {k:<32s}: {v}\n" for k, v in validation.items())
+        "".join(f"    {k:<34s}: {v}\n" for k, v in validation.items())
         if validation
         else "    not run\n"
+    )
+
+    # what the market data did not determine, kept next to what it did, so
+    # an assumed parameter is never read as a fitted one
+    assumption_block = (
+        "".join(f"    {k:<34s}: {v}\n" for k, v in calibration.assumptions.items())
+        if calibration.assumptions
+        else "    none - every parameter was fitted\n"
     )
 
     return f"""
@@ -168,8 +174,13 @@ def _report_text(
     Pricing model    : {problem.name}
     Features         : {', '.join(problem.feature_names)}
 
-    Calibrated Sigma : {fitted_params.sigma}
-    Calibrated Rate  : {fitted_params.r}
+    Calibrated Sigma : {calibration.params.sigma}
+    Calibrated Rate  : {calibration.params.r}
+    Converged        : {calibration.converged}
+
+    Assumed, not calibrated
+    -----------------------
+{assumption_block}
 
     RMSE     : {metrics['RMSE']}
     MAE      : {metrics['MAE']}

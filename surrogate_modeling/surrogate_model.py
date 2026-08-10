@@ -55,6 +55,7 @@ class SurrogateModel(eqx.Module):
 
         x_norm = (x - x_mean) / x_std
         y_norm = self.model(x_norm)
+
         return y_norm * y_std + y_mean
 
     def predict_price(self, x: jnp.ndarray) -> jnp.ndarray:

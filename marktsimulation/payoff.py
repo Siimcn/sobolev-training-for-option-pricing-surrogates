@@ -2,7 +2,9 @@ import jax.numpy as jnp
 import jax.nn as jnn
 import equinox as eqx
 
-from typing import Callable
+from dataclasses import dataclass
+
+from typing import Callable, Dict, Optional, Tuple
 
 
 def relu(
@@ -165,3 +167,108 @@ def AsianPut(
         smooth_fn=smooth_fn,
         smooth_w=smooth_w,
     )
+
+
+# --------------------------------------------------------------- registry
+
+
+@dataclass(frozen=True)
+class PayoffSpec:
+    """
+    Everything the pricing and validation layers need to know about a payoff.
+
+    `path_dependent` decides whether the terminal state is enough: a
+    European payoff reads only S(T) and can therefore be priced by an
+    exact one-step draw, an Asian payoff needs the whole trajectory and
+    forces a stepping scheme.
+
+    `bounds` returns model-free (lower, upper) price bounds, or None when
+    no simple bound is known. The validation stage checks whatever is
+    offered and skips the rest rather than inventing one.
+    """
+
+    name: str
+    build: Callable[..., Payoff]
+    path_dependent: bool
+    omega: float = 1.0
+    bounds: Optional[Callable[[float, float, float], Tuple[float, float]]] = None
+
+    @property
+    def is_call(self) -> bool:
+        return self.omega > 0.0
+
+
+def _call_bounds(underlying, strike, discount):
+    """A call is worth at least its discounted intrinsic, never more than
+    the underlying."""
+
+    return max(float(underlying - strike * discount), 0.0), float(underlying)
+
+
+def _put_bounds(underlying, strike, discount):
+    """Mirror image: never worth more than the discounted strike."""
+
+    discounted_strike = float(strike * discount)
+
+    return max(discounted_strike - float(underlying), 0.0), discounted_strike
+
+
+_PAYOFFS: Dict[str, PayoffSpec] = {}
+
+
+def register_payoff(spec: PayoffSpec, overwrite: bool = False) -> None:
+    """Make `spec.name` selectable as `payoff.name` in the configuration."""
+
+    key = spec.name.lower()
+
+    if key in _PAYOFFS and not overwrite:
+        raise ValueError(
+            f"A payoff named '{spec.name}' is already registered. "
+            f"Pass overwrite=True to replace it."
+        )
+
+    _PAYOFFS[key] = spec
+
+
+def available_payoffs() -> Tuple[str, ...]:
+    return tuple(sorted(_PAYOFFS))
+
+
+def payoff_spec(name: str) -> PayoffSpec:
+    key = name.lower()
+
+    if key not in _PAYOFFS:
+        raise ValueError(
+            f"Unknown payoff '{name}'. "
+            f"Expected one of: {', '.join(available_payoffs())}."
+        )
+
+    return _PAYOFFS[key]
+
+
+def build_payoff(
+    name: str,
+    strike,
+    smooth_w,
+    smooth_fn=sigmoid_smooth,
+) -> Payoff:
+    """Construct the registered payoff `name`."""
+
+    return payoff_spec(name).build(
+        strike=strike,
+        smooth_fn=smooth_fn,
+        smooth_w=smooth_w,
+    )
+
+
+register_payoff(
+    PayoffSpec("european_call", EuropeanCall, False, omega=1.0, bounds=_call_bounds)
+)
+register_payoff(
+    PayoffSpec("european_put", EuropeanPut, False, omega=-1.0, bounds=_put_bounds)
+)
+
+# an arithmetic average is less volatile than the terminal value, so the
+# European bounds do not carry over; none is declared rather than a wrong one
+register_payoff(PayoffSpec("asian_call", AsianCall, True, omega=1.0))
+register_payoff(PayoffSpec("asian_put", AsianPut, True, omega=-1.0))

@@ -20,6 +20,8 @@ def build_dataset(
         config.data.sobolev_order,
         n_samples=config.data.n_samples,
         seed=config.data.seed,
+        label_seed=config.simulation.label_seed,
+        shared_label_keys=config.simulation.shared_label_keys,
     )
 
 

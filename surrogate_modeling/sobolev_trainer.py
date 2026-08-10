@@ -23,7 +23,12 @@ from surrogate_modeling.metrics import (
 )
 
 from surrogate_modeling.training_config import (
+    COSINE_LR,
+    GRADIENT,
+    HESSIAN,
+    PRICE,
     PRICE_GRADIENT,
+    TOTAL,
     TrainingConfig,
 )
 
@@ -54,8 +59,21 @@ class SobolevTrainer:
 
         self.config.validate()
 
-        self.optimizer = optax.adam(
-            self.config.learning_rate
+        # one step per batch, so the schedule needs the batch count; it is
+        # only known once fit() sees the training set
+        self._build_optimizer(steps_per_epoch=1)
+
+    def _build_optimizer(self, steps_per_epoch: int) -> None:
+
+        self._steps_per_epoch = steps_per_epoch
+
+        self.optimizer = optax.chain(
+            *(
+                []
+                if self.config.gradient_clip is None
+                else [optax.clip_by_global_norm(self.config.gradient_clip)]
+            ),
+            optax.adam(self._learning_rate(steps_per_epoch)),
         )
 
         # is_inexact_array, not is_array: filter_value_and_grad differentiates
@@ -65,6 +83,39 @@ class SobolevTrainer:
                 self.model,
                 eqx.is_inexact_array,
             )
+        )
+
+    def _current_learning_rate(self, epoch: int) -> float:
+        """For the training history; a schedule is a function of the step."""
+
+        rate = self._learning_rate(self._steps_per_epoch)
+
+        if callable(rate):
+            return float(rate(epoch * self._steps_per_epoch))
+
+        return float(rate)
+
+    def _learning_rate(self, steps_per_epoch: int):
+        """Constant, or warmup then cosine decay towards a small floor."""
+
+        if self.config.lr_schedule != COSINE_LR:
+            return self.config.learning_rate
+
+        total = max(self.config.epochs * steps_per_epoch, 2)
+
+        # warmup has to leave room for the decay: optax measures the cosine
+        # over (decay_steps - warmup_steps), which must stay positive even
+        # for a very short run
+        warmup = int(
+            min(self.config.warmup_epochs * steps_per_epoch, max(total // 5, 1))
+        )
+
+        return optax.warmup_cosine_decay_schedule(
+            init_value=self.config.learning_rate * self.config.lr_final_fraction,
+            peak_value=self.config.learning_rate,
+            warmup_steps=warmup,
+            decay_steps=total,
+            end_value=self.config.learning_rate * self.config.lr_final_fraction,
         )
 
     def compute_loss(
@@ -141,26 +192,43 @@ class SobolevTrainer:
         """
         The quantity early stopping and checkpointing compare.
 
-        Under PRICE_GRADIENT the HVP term is dropped and the remaining two
-        are renormalized, so the criterion keeps the objective's balance
-        between price and gradient without being swamped by the noisiest
-        term.
+        TOTAL is the Sobolev objective itself. The subset criteria drop
+        terms and renormalize the remaining weights, which keeps their
+        balance but means the dropped term is no longer being optimised
+        for at selection time - measured to leave the validation HVP loss
+        2.6x above its achievable value under PRICE_GRADIENT.
         """
 
-        if self.config.selection_metric != PRICE_GRADIENT:
+        metric = self.config.selection_metric
+
+        if metric == TOTAL:
             return float(valid_loss)
 
         alpha = float(valid_metrics["alpha"])
         beta = float(valid_metrics["beta"])
+        gamma = float(valid_metrics.get("gamma", 0.0))
 
-        weighted = alpha * float(valid_metrics["price_loss"])
+        terms = {
+            PRICE: [(alpha, "price_loss")],
+            GRADIENT: [(beta, "gradient_loss")],
+            PRICE_GRADIENT: [(alpha, "price_loss"), (beta, "gradient_loss")],
+            HESSIAN: [(gamma, "hessian_loss")],
+        }[metric]
 
-        if "gradient_loss" in valid_metrics:
-            weighted += beta * float(valid_metrics["gradient_loss"])
-        else:
-            beta = 0.0
+        weighted = 0.0
+        total_weight = 0.0
 
-        return weighted / max(alpha + beta, 1e-12)
+        for weight, name in terms:
+            if name not in valid_metrics:
+                continue
+
+            weighted += weight * float(valid_metrics[name])
+            total_weight += weight
+
+        if total_weight <= 0.0:
+            return float(valid_loss)
+
+        return weighted / total_weight
 
     def _improvement_threshold(self, best_loss: float) -> float:
         """Relative once a finite best exists, so the first epoch always counts."""
@@ -224,9 +292,19 @@ class SobolevTrainer:
             self.config.seed
         )
 
+        # the schedule is defined in optimizer steps, which is batches, so
+        # it can only be built once the training set size is known
+        self._build_optimizer(
+            steps_per_epoch=max(
+                1,
+                -(-len(train_dataset) // self.config.batch_size),
+            )
+        )
+
         history = {
             "train_loss": [],
             "valid_loss": [],
+            "learning_rate": [],
 
             "train_price_rmse": [],
             "valid_price_rmse": [],
@@ -354,6 +432,10 @@ class SobolevTrainer:
 
             history["train_loss"].append(
                 epoch_loss
+            )
+
+            history["learning_rate"].append(
+                self._current_learning_rate(epoch)
             )
 
             history["train_price_rmse"].append(

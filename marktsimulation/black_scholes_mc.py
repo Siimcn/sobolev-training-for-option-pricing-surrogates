@@ -12,7 +12,7 @@ from marktsimulation.timesteppingscheme import (
 )
 
 from marktsimulation.payoff import (
-    EuropeanCall,
+    payoff_spec,
     sigmoid_smooth,
 )
 
@@ -41,20 +41,50 @@ def _payoff_smoothing_width(spot, maturity, sigma):
     return jnp.maximum(0.05 * dispersion, 1e-3)
 
 
+def simulate_terminal(spot, sigma, r, maturity, num_paths, key, antithetic=True):
+    """
+    Exact terminal draws of a geometric Brownian motion.
+
+    S(T) = S(0) exp((r - sigma^2/2) T + sigma sqrt(T) Z) is the law of the
+    process, not an approximation of it, so a payoff reading only S(T)
+    needs one draw per path and carries no discretisation error.
+
+    `antithetic` pairs every Z with -Z: same law, so the estimator stays
+    unbiased, but the two payoffs are negatively correlated and most of
+    the level variance cancels. Adapted from diff-ml's antithetic sampling.
+    """
+
+    z = jax.random.normal(key, (num_paths,))
+
+    drift = (r - 0.5 * sigma**2) * maturity
+    scale = sigma * jnp.sqrt(maturity)
+
+    forward = spot * jnp.exp(drift + scale * z)
+
+    if not antithetic:
+        return (forward,)
+
+    return forward, spot * jnp.exp(drift - scale * z)
+
+
 def bs_mc_price(
     x: jnp.ndarray,
-    key: jnp.ndarray = None,
+    key: jnp.ndarray,
+    payoff: str = "european_call",
+    num_paths: int = MC_NUM_PATHS,
+    num_steps: int = MC_NUM_STEPS,
+    antithetic: bool = True,
 ):
     """
     x = [S, K, T, sigma, r]
 
-    `key` defaults to a fixed PRNGKey(0) so every training label uses
-    common random numbers. Pass a different key for an independent
-    re-simulation.
-    """
+    `key` is required, not defaulted. A shared key across a dataset makes
+    every label carry one realisation of the Monte Carlo error, which then
+    never averages out; see `create_sobolev_labels`.
 
-    if key is None:
-        key = jax.random.PRNGKey(0)
+    The scheme follows the payoff: terminal-only payoffs use the exact
+    one-step law, path-dependent ones the stepping scheme.
+    """
 
     spot = x[0]
     strike = x[1]
@@ -67,38 +97,44 @@ def bs_mc_price(
         sigma=sigma,
     )
 
-    scheme = EulerMaruyama()
-
-    model = BlackScholesModel(
-        scheme=scheme
-    )
-
     smooth_w = _payoff_smoothing_width(spot, maturity, sigma)
 
-    payoff = EuropeanCall(
+    spec = payoff_spec(payoff)
+
+    payoff_obj = spec.build(
         strike=strike,
+        smooth_fn=sigmoid_smooth,
         smooth_w=smooth_w,
     )
 
-    pricer = MonteCarloPricer(
-        model=model,
-        payoff=payoff,
-    )
+    if spec.path_dependent:
 
-    price = pricer.price(
-        s0=jnp.array([spot]),
-        params=params,
-        maturity=maturity,
-        num_paths=MC_NUM_PATHS,
-        num_steps=MC_NUM_STEPS,
-        key=key,
-    )
+        pricer = MonteCarloPricer(
+            model=BlackScholesModel(scheme=EulerMaruyama()),
+            payoff=payoff_obj,
+            payoff_on_path=True,
+        )
 
-    discount = jnp.exp(
-        -r * maturity
-    )
+        undiscounted = pricer.price(
+            s0=jnp.array([spot]),
+            params=params,
+            maturity=maturity,
+            num_paths=num_paths,
+            num_steps=num_steps,
+            key=key,
+        )
 
-    return discount * price
+    else:
+
+        blocks = simulate_terminal(
+            spot, sigma, r, maturity, num_paths, key, antithetic=antithetic
+        )
+
+        undiscounted = jnp.mean(
+            jnp.stack([jnp.mean(jax.vmap(payoff_obj)(block)) for block in blocks])
+        )
+
+    return jnp.exp(-r * maturity) * undiscounted
 
 
 def make_mc_calibration_pricer(
@@ -225,74 +261,6 @@ def make_mc_calibration_pricer(
     return mc_pricing_fn
 
 
-def bs_mc_feature_price(
-    x: jnp.ndarray,
-):
-    return bs_mc_price(x)
-
-def bs_mc_feature_gradient(
-    x: jnp.ndarray,
-):
-    return jax.grad(
-        bs_mc_feature_price
-    )(x)
-
-def bs_mc_feature_hessian(
-    x: jnp.ndarray,
-):
-    return jax.hessian(
-        bs_mc_feature_price
-    )(x)
-
-def bs_mc_feature_hvp(x: jnp.ndarray, v: jnp.ndarray):
-    """
-    True HVP of the Monte Carlo price estimator, via forward-over-reverse
-    autodiff (this does not build the full Hessian).
-    """
-    _, hvp = jax.jvp(jax.grad(bs_mc_feature_price), (x,), (v,))
-    return hvp
-
-# sequential dataset generation to avoid OOM errors
-def create_bs_mc_dataset(
-    X: jnp.ndarray,
-    sobolev_order: int = 1,
-):
-    # value_and_grad so the MC simulation runs once per sample, not twice
-    price_and_grad_fn = jax.jit(jax.value_and_grad(bs_mc_feature_price))
-
-    if sobolev_order >= 2:
-        hess_fn = jax.jit(bs_mc_feature_hessian)
-
-    prices = []
-    gradients = []
-    hessians = []
-
-    print(f"Generating data for {len(X)} samples sequentially to save memory...")
-
-    for i in range(len(X)):
-        x = X[i]
-
-        price, grad = price_and_grad_fn(x)
-        prices.append(price)
-        gradients.append(grad)
-
-        if sobolev_order >= 2:
-            hessians.append(hess_fn(x))
-
-    prices = jnp.stack(prices)
-    gradients = jnp.stack(gradients)
-
-    if sobolev_order >= 2:
-        hessians = jnp.stack(hessians)
-    else:
-        hessians = None
-
-    return (
-        prices,
-        gradients,
-        hessians,
-    )
-
 def generate_training_paths(
     x: jnp.ndarray,
     num_paths: int = 100,
@@ -336,16 +304,3 @@ def generate_training_paths(
     )
 
     return time_grid, paths
-
-def create_bs_mc_dataset_with_hvps(
-    X: jnp.ndarray,
-    V: jnp.ndarray,  # per-sample random unit probe vectors
-    sobolev_order: int = 2,
-):
-    return create_sobolev_labels(
-        bs_mc_feature_price,
-        X,
-        V,
-        sobolev_order=sobolev_order,
-        message=f"Generating data with HVPs for {len(X)} samples...",
-    )

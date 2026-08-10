@@ -54,6 +54,10 @@ def validate_surrogate(
         problem,
         n_points=config.validation.n_points,
         seed=config.validation.seed,
+        arbitrage_tolerance_sigma=config.validation.arbitrage_tolerance_sigma,
+        # measured against the same benchmark, so a systematic error in the
+        # labels is never mistaken for a failure of the network
+        label_price_fn=problem.label_price_fn(),
     )
 
 

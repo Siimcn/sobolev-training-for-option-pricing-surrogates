@@ -1,13 +1,63 @@
 import jax
 import jax.numpy as jnp
 
-from marktsimulation.payoff import EuropeanCall, AsianCall, sigmoid_smooth
+from marktsimulation.payoff import payoff_spec, sigmoid_smooth
 from marktsimulation.monte_carlo_pricer import MonteCarloPricer
 from marktsimulation.pricing_model import (
     BasketBlackScholesModel,
     BasketBlackScholesParams,
 )
 from marktsimulation.timesteppingscheme import EulerMaruyama
+
+
+def simulate_basket_terminal(
+    s0: jnp.ndarray,
+    corr: jnp.ndarray,
+    sigmas: jnp.ndarray,
+    r: float,
+    maturity,
+    num_paths: int,
+    key: jnp.ndarray,
+    antithetic: bool = True,
+):
+    """
+    Exact terminal draws of correlated geometric Brownian assets.
+
+    A GBM with constant coefficients has a known transition law, so the
+    terminal state is drawn in a single step
+
+        S_i(T) = S_i(0) exp((r - sigma_i^2 / 2) T + sigma_i sqrt(T) Z_i)
+
+    with Z correlated by the Cholesky factor of `corr`. For a payoff that
+    reads only S(T) this carries no discretisation error at all, and costs
+    one normal per asset per path instead of `num_steps` of them.
+
+    With `antithetic` every draw Z is paired with -Z. Both have the same
+    law, so the estimator stays unbiased, and the two payoffs are
+    negatively correlated, which removes most of the variance that comes
+    from the level of the basket. Adapted from diff-ml's
+    `Bachelier.antithetic_payoff`.
+
+    Returns a tuple of terminal-state blocks to be averaged over: one
+    entry without antithetics, two with.
+
+    Not valid for a path-dependent payoff - an Asian option needs the
+    whole trajectory - which is why the stepping scheme stays.
+    """
+
+    z = jax.random.normal(key, (num_paths, len(sigmas)))
+
+    correlated = z @ jnp.linalg.cholesky(corr).T
+
+    drift = (r - 0.5 * sigmas**2) * maturity
+    scale = sigmas * jnp.sqrt(maturity)
+
+    forward = s0 * jnp.exp(drift + scale * correlated)
+
+    if not antithetic:
+        return (forward,)
+
+    return forward, s0 * jnp.exp(drift - scale * correlated)
 
 
 def basket_price(
@@ -17,35 +67,71 @@ def basket_price(
     strike,
     maturity,
     key,
+    payoff: str = "european_call",
     num_paths: int = 50_000,
     num_steps: int = 50,
-    asian: bool = False,
     smooth_w: float = 1.0,
-): 
+    antithetic: bool = True,
+):
+    """
+    One basket price under an explicit `key`.
 
-    payoff_fn = AsianCall if asian else EuropeanCall
+    The scheme follows the payoff: a terminal-only payoff is priced from
+    an exact one-step draw, a path-dependent one from the stepping scheme.
+    Nothing here decides that - `payoff_spec(...).path_dependent` does.
+    """
 
-    payoff = payoff_fn(
+    spec = payoff_spec(payoff)
+
+    payoff_obj = spec.build(
         strike=strike,
         smooth_fn=sigmoid_smooth,
         smooth_w=smooth_w,
     )
 
-    pricer = MonteCarloPricer(
-        model,
-        payoff,
-        value_fn=lambda s: model.basket_value(s, params),
-        payoff_on_path=asian,
-    )
+    if spec.path_dependent:
 
-    undiscounted = pricer.price(
-        s0=s0,
-        params=params,
-        maturity=maturity,
-        num_paths=num_paths,
-        num_steps=num_steps,
-        key=key,
-    )
+        pricer = MonteCarloPricer(
+            model,
+            payoff_obj,
+            value_fn=lambda s: model.basket_value(s, params),
+            payoff_on_path=True,
+        )
+
+        undiscounted = pricer.price(
+            s0=s0,
+            params=params,
+            maturity=maturity,
+            num_paths=num_paths,
+            num_steps=num_steps,
+            key=key,
+        )
+
+    else:
+
+        blocks = simulate_basket_terminal(
+            s0,
+            params.corr,
+            params.sigmas,
+            params.r,
+            maturity,
+            num_paths,
+            key,
+            antithetic=antithetic,
+        )
+
+        undiscounted = jnp.mean(
+            jnp.stack(
+                [
+                    jnp.mean(
+                        jax.vmap(payoff_obj)(
+                            jax.vmap(lambda s: model.basket_value(s, params))(block)
+                        )
+                    )
+                    for block in blocks
+                ]
+            )
+        )
 
     return undiscounted * jnp.exp(-params.r * maturity)
 
@@ -81,14 +167,15 @@ def make_basket_feature_price(
     corr: jnp.ndarray,
     sigmas: jnp.ndarray,
     r: float,
+    payoff: str = "european_call",
     num_paths: int = 50_000,
     num_steps: int = 50,
-    seed: int = 0,
     smooth_fraction: float = 0.05,
     symmetrize: bool = False,
+    antithetic: bool = True,
 ):
     """
-    Build `f(x) -> price` for a basket call, with the feature layout
+    Build `f(x, key) -> price` for a basket option, with the feature layout
 
         x = [S_1, ..., S_n, K, T]
 
@@ -96,8 +183,10 @@ def make_basket_feature_price(
     fixed here rather than carried in x, mirroring how diff-ml's Bachelier
     example uses the spot vector alone as its input.
 
-    The key is fixed so every label in a dataset shares its random
-    numbers, exactly as bs_mc_price does.
+    The key is an argument, not a closure. Binding one key for a whole
+    dataset makes every label share a single realisation of the Monte
+    Carlo error, which then does not average out over samples - see
+    `create_sobolev_labels` for the measurement and the reasoning.
 
     With `symmetrize` the spots are sorted before pricing. Asset i draws
     Brownian column i, so the raw estimator is not invariant under
@@ -113,9 +202,7 @@ def make_basket_feature_price(
             "equal volatilities and a uniform correlation."
         )
 
-    key = jax.random.PRNGKey(seed)
-
-    def price_fn(x: jnp.ndarray) -> jnp.ndarray:
+    def price_fn(x: jnp.ndarray, key: jnp.ndarray) -> jnp.ndarray:
         return basket_feature_price(
             x,
             weights=weights,
@@ -123,10 +210,12 @@ def make_basket_feature_price(
             sigmas=sigmas,
             r=r,
             key=key,
+            payoff=payoff,
             num_paths=num_paths,
             num_steps=num_steps,
             smooth_fraction=smooth_fraction,
             symmetrize=symmetrize,
+            antithetic=antithetic,
         )
 
     return price_fn
@@ -139,18 +228,14 @@ def basket_feature_price(
     sigmas: jnp.ndarray,
     r: float,
     key: jnp.ndarray,
+    payoff: str = "european_call",
     num_paths: int = 50_000,
     num_steps: int = 50,
     smooth_fraction: float = 0.05,
     symmetrize: bool = False,
+    antithetic: bool = True,
 ) -> jnp.ndarray:
-    """
-    One basket price for x = [S_1, ..., S_n, K, T] under an explicit `key`.
-
-    `make_basket_feature_price` binds the key once for a whole dataset;
-    passing it here is what lets the validation stage re-price the same
-    point with independent random numbers.
-    """
+    """One basket price for x = [S_1, ..., S_n, K, T] under an explicit `key`."""
 
     n_assets = len(weights)
 
@@ -180,9 +265,11 @@ def basket_feature_price(
         strike,
         maturity,
         key,
+        payoff=payoff,
         num_paths=num_paths,
         num_steps=num_steps,
         smooth_w=smooth_w,
+        antithetic=antithetic,
     )
 
 
@@ -269,22 +356,22 @@ def basket_greeks(
     strike,
     maturity,
     key,
+    payoff: str = "european_call",
     num_paths: int = 50_000,
     num_steps: int = 50,
-    asian: bool = False,
 ):
     """
     Price and per-asset deltas/gammas of a basket option.
 
-    Pathwise AD through the whole Monte Carlo simulation; the key is
-    fixed within one call, so all evaluations share common random
-    numbers.
+    Pathwise AD through the whole Monte Carlo simulation. The key is fixed
+    within one call, which is exactly where common random numbers belong:
+    all derivatives are taken at the same point on the same paths.
     """
 
     def price_fn(s0_):
         return basket_price(
             model, params, s0_, strike, maturity, key,
-            num_paths=num_paths, num_steps=num_steps, asian=asian,
+            payoff=payoff, num_paths=num_paths, num_steps=num_steps,
         )
 
     price, delta = jax.value_and_grad(price_fn)(s0)

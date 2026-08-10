@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from kalibrierung.market_data import MarketData
 from marktsimulation.pricing_model import BlackScholesParams
 from pipeline.config import BasketConfig, DataConfig, ExperimentConfig
-from surrogate_modeling.pricing_problem import build_problem
+from surrogate_modeling.pricing_problem import CalibrationResult, build_problem
 from surrogate_modeling.training_config import TrainingConfig
 from utils.experiment_logger import ExperimentLogger, LoggerWriter
 
@@ -29,7 +29,10 @@ def _problem(config):
         config.data.pricing_model,
         config=config,
         market_data=market_data,
-        fitted_params=BlackScholesParams(r=0.05, sigma=0.2),
+        calibration=CalibrationResult(
+            params=BlackScholesParams(r=0.05, sigma=0.2),
+            assumptions={"correlation": 0.5},
+        ),
     )
 
 
@@ -201,9 +204,13 @@ def test_save_config_archives_a_nested_experiment_config():
     assert saved["basket"]["symmetrize"] is True
     assert saved["basket"]["weights"] is None
 
+    assert saved["payoff"]["name"] == "european_call"
+    assert saved["simulation"]["shared_label_keys"] is False
+    assert saved["simulation"]["antithetic"] is True
+
     assert saved["market"]["ticker"] == "AAPL"
     assert saved["network"]["in_size"] is None
-    assert saved["training"]["selection_metric"] == "price_gradient"
+    assert saved["training"]["selection_metric"] == "total"
 
     assert saved["derived"]["problem"] == "basket_black_scholes"
     assert saved["derived"]["feature_names"] == ["S1", "S2", "S3", "K", "T"]
@@ -214,6 +221,9 @@ def test_save_config_archives_a_nested_experiment_config():
     assert len(saved["derived"]["domain_low"]) == 5
     assert saved["derived"]["domain_low"][4] >= 0.05
     assert saved["derived"]["exchangeable_features"] == [0, 1, 2]
+
+    # an assumed parameter is archived as an assumption, never as a fit
+    assert saved["derived"]["assumptions"]["correlation"] == 0.5
 
 
 def test_two_pricing_models_no_longer_share_a_config_file():

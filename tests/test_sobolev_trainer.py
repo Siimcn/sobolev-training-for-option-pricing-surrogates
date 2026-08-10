@@ -95,7 +95,8 @@ def test_without_validation_only_train_curves_are_filled():
 def test_early_stopping_halts_when_validation_stops_improving():
     train, valid = train_test_split(_dataset())
 
-    config = _config(epochs=50, early_stopping=True, patience=2, min_delta=1e9)
+    config = _config(epochs=50, early_stopping=True, patience=2,
+                     min_delta=1e9, min_delta_relative=0.0)
 
     history = SobolevTrainer(_surrogate(train), config).fit(train, valid)
 
@@ -106,7 +107,8 @@ def test_early_stopping_halts_when_validation_stops_improving():
 def test_early_stopping_disabled_runs_every_epoch():
     train, valid = train_test_split(_dataset())
 
-    config = _config(epochs=6, early_stopping=False, patience=2, min_delta=1e9)
+    config = _config(epochs=6, early_stopping=False, patience=2,
+                     min_delta=1e9, min_delta_relative=0.0)
 
     history = SobolevTrainer(_surrogate(train), config).fit(train, valid)
 

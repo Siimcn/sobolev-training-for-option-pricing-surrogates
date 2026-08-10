@@ -1,22 +1,24 @@
-import optimistix as optx
-
 from typing import Optional, Tuple
 
-from kalibrierung.calibrator import Calibrator
 from kalibrierung.market_data import MarketData
 from kalibrierung.market_data_loader import MarketDataLoader
 
-from marktsimulation.black_scholes import black_scholes_price
-from marktsimulation.black_scholes_mc import make_mc_calibration_pricer
-from marktsimulation.pricing_model import BlackScholesParams
+from surrogate_modeling.pricing_problem import CalibrationResult, calibrate_problem
 
 from pipeline.config import ExperimentConfig
 
 
 def load_and_calibrate(
     config: ExperimentConfig,
-) -> Optional[Tuple[MarketData, BlackScholesParams]]:
-    """Returns None if loading or calibration fails; the caller must stop."""
+) -> Optional[Tuple[MarketData, CalibrationResult]]:
+    """
+    Load the option chain and fit the configured model to it.
+
+    Which parameters are fitted, with which pricer, and what has to be
+    assumed instead is the problem's business - this stage only decides
+    that calibration happens and reports failure. Returns None if either
+    step fails; the caller must stop.
+    """
 
     try:
         market_data = _load_market_data(config)
@@ -27,11 +29,20 @@ def load_and_calibrate(
             "\n===== Calibration =====\n"
         )
 
-        fitted_params = _calibrate(market_data, config)
+        calibration = calibrate_problem(
+            config.data.pricing_model,
+            config=config,
+            market_data=market_data,
+        )
 
         print(
             f"Calibrated sigma: "
-            f"{fitted_params.sigma:.4f}"
+            f"{calibration.params.sigma:.4f}"
+        )
+
+        print(
+            f"Calibrated rate : "
+            f"{calibration.params.r:.4f}"
         )
 
     except Exception as e:
@@ -39,7 +50,7 @@ def load_and_calibrate(
         print(e)
         return None
 
-    return market_data, fitted_params
+    return market_data, calibration
 
 
 def _load_market_data(config: ExperimentConfig) -> MarketData:
@@ -59,75 +70,3 @@ def _load_market_data(config: ExperimentConfig) -> MarketData:
         market_prices=prices,
         is_call=is_call,
     )
-
-
-def _calibration_pricer(
-    market_data: MarketData,
-    config: ExperimentConfig,
-):
-    """Closed-form Black-Scholes, or the Monte Carlo simulator instead."""
-
-    if config.market.black_scholes_analytic:
-
-        print(
-            "Pricing engine: analytic Black-Scholes"
-        )
-
-        def analytic_pricer(params, strikes, maturities, is_call):
-            return black_scholes_price(
-                params=params,
-                strikes=strikes,
-                maturities=maturities,
-                is_call=is_call,
-                spot=market_data.spot,
-            )
-
-        return analytic_pricer
-
-    print(
-        f"Pricing engine: Monte Carlo "
-        f"({config.market.mc_calibration_paths} paths, "
-        f"{config.market.mc_calibration_steps} steps, "
-        f"seed {config.market.mc_calibration_seed})"
-    )
-
-    return make_mc_calibration_pricer(
-        spot=market_data.spot,
-        maturities=market_data.maturities,
-        seed=config.market.mc_calibration_seed,
-        num_paths=config.market.mc_calibration_paths,
-        num_steps=config.market.mc_calibration_steps,
-    )
-
-
-def _calibrate(
-    market_data: MarketData,
-    config: ExperimentConfig,
-) -> BlackScholesParams:
-
-    calibrator = Calibrator(
-        pricing_fn=_calibration_pricer(
-            market_data,
-            config,
-        )
-    )
-
-    initial_params = BlackScholesParams(
-        r=config.market.initial_rate,
-        sigma=config.market.initial_sigma,
-    )
-
-    fitted_params, solution = calibrator.calibrate(
-        initial_params,
-        market_data,
-    )
-
-    # calibrate() runs with throw=False, so a failed solve returns the last
-    # iterate instead of raising; without this the pipeline would train on it
-    if solution.result != optx.RESULTS.successful:
-        print(
-            f"WARNING: calibration did not converge ({solution.result}). "
-            f"Parameters below are the last iterate, not a solution."
-        )
-
-    return fitted_params

@@ -29,7 +29,7 @@ from pipeline.training import train_surrogate
 
 
 def main(config: ExperimentConfig = None):
-    """Market data -> calibration -> Sobolev surrogate -> validation -> risk."""
+    """Problem -> calibration -> dataset -> training -> validation -> risk."""
 
     config = config or ExperimentConfig()
 
@@ -44,7 +44,7 @@ def main(config: ExperimentConfig = None):
     if market is None:
         return
 
-    market_data, fitted_params = market
+    market_data, calibration = market
 
     # every later stage asks this object what it is pricing, so none of
     # them branches on the configured model
@@ -52,7 +52,7 @@ def main(config: ExperimentConfig = None):
         config.data.pricing_model,
         config=config,
         market_data=market_data,
-        fitted_params=fitted_params,
+        calibration=calibration,
     )
 
     dataset = build_dataset(problem, config)
@@ -91,7 +91,7 @@ def main(config: ExperimentConfig = None):
         config,
         problem,
         market_data,
-        fitted_params,
+        calibration,
         metrics,
         validation,
         xva,

@@ -31,4 +31,5 @@ def run_risk_analysis(
         num_paths=config.risk.num_paths,
         num_steps=config.risk.num_steps,
         seed=config.risk.seed,
+        min_maturity=config.data.min_maturity,
     )

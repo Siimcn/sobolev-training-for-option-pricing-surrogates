@@ -34,8 +34,8 @@ def build_surrogate(
         depth=config.network.depth,
     )
 
-    # [S, K, T, sigma, r] and the price target span very different scales,
-    # which leaves training ill-conditioned without normalization
+    # features and the price target span very different scales, which
+    # leaves training ill-conditioned without normalization
     x_mean = jnp.mean(train_dataset.X, axis=0)
     x_std = jnp.std(train_dataset.X, axis=0)
     y_mean = jnp.mean(train_dataset.y)

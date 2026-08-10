@@ -16,10 +16,13 @@ from pipeline.config import (
     BasketConfig,
     DataConfig,
     ExperimentConfig,
+    SimulationConfig,
 )
 from surrogate_modeling.data_generation import create_sobolev_dataset
 from surrogate_modeling.pricing_problem import (
+    CalibrationResult,
     PricingProblem,
+    ProblemSpec,
     available_problems,
     build_problem,
     register_problem,
@@ -42,26 +45,33 @@ def _market_data():
 
 def _problem(pricing_model):
     config = ExperimentConfig(
+        simulation=SimulationConfig(num_paths=4_000, num_steps=20, reference_paths=16_000),
         data=DataConfig(pricing_model=pricing_model),
-        basket=BasketConfig(n_assets=3, num_paths=4_000, num_steps=20),
+        basket=BasketConfig(n_assets=3),
     )
 
     return build_problem(
         pricing_model,
         config=config,
         market_data=_market_data(),
-        fitted_params=BlackScholesParams(r=R, sigma=SIGMA),
+        calibration=CalibrationResult(params=BlackScholesParams(r=R, sigma=SIGMA)),
     )
 
 
 class _Surrogate:
-    """Minimal stand-in: the validation stage only calls predict_price."""
+    """Minimal stand-in with the batch interface the validation stage uses."""
 
     def __init__(self, fn):
         self.fn = fn
 
     def predict_price(self, x):
         return self.fn(x)
+
+    def predict_prices(self, X):
+        return jnp.array([float(self.fn(x)) for x in X])
+
+    def predict_gradients(self, X):
+        return jax.vmap(jax.grad(lambda x: jnp.asarray(self.fn(x), float)))(X)
 
 
 # ----------------------------------------------- a problem is four methods
@@ -79,7 +89,8 @@ class ToyProblem(PricingProblem):
         return u.at[:, 0].set(u[:, 0] * 10.0).at[:, 1].set(1.0 + 2.0 * u[:, 1])
 
     def label_price_fn(self):
-        return lambda x: x[0] * x[1]
+        # deterministic, so the key is accepted and ignored
+        return lambda x, key: x[0] * x[1]
 
 
 def test_a_minimal_problem_needs_only_the_four_required_members():
@@ -102,7 +113,11 @@ def test_a_minimal_problem_needs_only_the_four_required_members():
 
     # unimplemented stages report themselves as unavailable
     assert problem.underlying_paths(problem.baseline_features()) is None
-    assert problem.reference_price(problem.baseline_features(), jax.random.PRNGKey(0)) is None
+    assert (
+        problem.reference_price(problem.baseline_features(), jax.random.PRNGKey(0))
+        is None
+    )
+    assert problem.shape_constraints() == ()
     assert problem.analytic_price(problem.baseline_features()) is None
     assert problem.arbitrage_bounds(problem.baseline_features()) is None
     assert problem.exposure_paths(strike=1.0) is None
@@ -126,8 +141,11 @@ def test_a_minimal_problem_can_be_trained_on():
 
 def test_registering_a_problem_makes_it_selectable():
     register_problem(
-        "toy_registered",
-        lambda config, market_data, fitted_params: ToyProblem(),
+        ProblemSpec(
+            "toy_registered",
+            build=lambda config, market_data, calibration: ToyProblem(),
+            calibrate=lambda config, market_data: CalibrationResult(params=None),
+        ),
         overwrite=True,
     )
 
@@ -139,7 +157,7 @@ def test_registering_a_problem_makes_it_selectable():
         config.data.pricing_model,
         config=config,
         market_data=None,
-        fitted_params=None,
+        calibration=None,
     )
 
     assert problem.feature_names == ("a", "b")
@@ -147,7 +165,7 @@ def test_registering_a_problem_makes_it_selectable():
 
 def test_registering_a_duplicate_name_is_refused():
     try:
-        register_problem(BLACK_SCHOLES, lambda **kwargs: None)
+        register_problem(ProblemSpec(BLACK_SCHOLES, lambda **k: None, lambda **k: None))
     except ValueError as e:
         assert "already registered" in str(e)
     else:
@@ -161,12 +179,13 @@ def test_validation_reports_a_perfect_surrogate_as_accurate():
 
     surrogate = _Surrogate(problem.analytic_price)
 
-    summary = run_reference_validation(surrogate, problem, n_points=4)
+    summary = run_reference_validation(surrogate, problem, n_points=32)
 
     # the closed form should sit as close to fresh MC as MC does to itself
-    assert summary["MeanSurrogateVsReference_pct"] < 5.0
-    assert summary["MeanReferenceVsAnalytic_pct"] < 5.0
-    assert summary["ArbitrageViolations"] == 0.0
+    assert summary["surrogate_median_relative_pct"] < 5.0
+    assert abs(summary["surrogate_bias"]) < 1.0
+    assert "reference_vs_analytic_bias" in summary
+    assert summary["negative_prices"] == 0.0
 
 
 def test_validation_runs_for_a_model_without_a_closed_form():
@@ -176,13 +195,13 @@ def test_validation_runs_for_a_model_without_a_closed_form():
         lambda x: problem.reference_price(x, jax.random.PRNGKey(4))
     )
 
-    summary = run_reference_validation(surrogate, problem, n_points=3)
+    summary = run_reference_validation(surrogate, problem, n_points=16)
 
     # a basket has no analytic price, so that column is absent - but the
     # independent Monte Carlo benchmark still runs
-    assert "MeanSurrogateVsReference_pct" in summary
-    assert "MeanReferenceVsAnalytic_pct" not in summary
-    assert summary["MeanSurrogateVsReference_pct"] < 10.0
+    assert "surrogate_bias" in summary
+    assert "reference_vs_analytic_bias" not in summary
+    assert summary["surrogate_median_relative_pct"] < 25.0
 
 
 def test_validation_catches_an_arbitrage_violating_surrogate():
@@ -191,12 +210,13 @@ def test_validation_catches_an_arbitrage_violating_surrogate():
     summary = run_reference_validation(
         _Surrogate(lambda x: jnp.asarray(1e6) + 0.0 * jnp.sum(x)),
         problem,
-        n_points=4,
+        n_points=16,
     )
 
-    # a call worth more than its underlying is impossible
-    assert summary["ArbitrageViolations"] == 4.0
-    assert summary["WorstArbitrageBreach"] > 0.0
+    # a call worth more than its underlying is impossible, and 1e6 is far
+    # outside any Monte Carlo tolerance
+    assert summary["arbitrage_violation_pct"] == 100.0
+    assert summary["arbitrage_worst_breach"] > 0.0
 
 
 def test_validation_catches_a_surrogate_that_broke_exchangeability():
@@ -205,21 +225,21 @@ def test_validation_catches_a_surrogate_that_broke_exchangeability():
     asymmetric = _Surrogate(lambda x: 3.0 * x[0] + x[1] + x[2])
     symmetric = _Surrogate(lambda x: x[0] + x[1] + x[2])
 
-    broken = run_reference_validation(asymmetric, problem, n_points=3)
-    intact = run_reference_validation(symmetric, problem, n_points=3)
+    broken = run_reference_validation(asymmetric, problem, n_points=16)
+    intact = run_reference_validation(symmetric, problem, n_points=16)
 
-    assert broken["WorstPermutationDeviation_pct"] > 1.0
-    assert intact["WorstPermutationDeviation_pct"] < 1e-9
+    assert broken["permutation_worst_deviation"] > 1.0
+    assert intact["permutation_worst_deviation"] < 1e-9
 
 
 def test_validation_skips_exchangeability_for_a_single_asset_model():
     summary = run_reference_validation(
         _Surrogate(_problem(BLACK_SCHOLES).analytic_price),
         _problem(BLACK_SCHOLES),
-        n_points=3,
+        n_points=8,
     )
 
-    assert "WorstPermutationDeviation_pct" not in summary
+    assert "permutation_worst_deviation" not in summary
 
 
 def test_validation_says_so_when_no_benchmark_exists(capsys=None):

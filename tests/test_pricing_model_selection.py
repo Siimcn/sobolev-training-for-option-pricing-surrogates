@@ -22,9 +22,14 @@ from pipeline.config import (
     BasketConfig,
     DataConfig,
     ExperimentConfig,
+    SimulationConfig,
 )
 from surrogate_modeling.data_generation import create_sobolev_dataset
-from surrogate_modeling.pricing_problem import available_problems, build_problem
+from surrogate_modeling.pricing_problem import (
+    CalibrationResult,
+    available_problems,
+    build_problem,
+)
 
 
 SPOT, SIGMA, R = 100.0, 0.2, 0.05
@@ -47,21 +52,24 @@ def _params():
     return BlackScholesParams(r=R, sigma=SIGMA)
 
 
-def _config(pricing_model, basket=None, min_maturity=None):
+def _config(pricing_model, basket=None, min_maturity=None, num_paths=4_000):
     return ExperimentConfig(
+        simulation=SimulationConfig(
+            num_paths=num_paths, num_steps=20, reference_paths=4 * num_paths
+        ),
         data=DataConfig(pricing_model=pricing_model, min_maturity=min_maturity),
-        basket=basket or BasketConfig(n_assets=3, num_paths=4_000, num_steps=20),
+        basket=basket or BasketConfig(n_assets=3),
     )
 
 
-def _problem(pricing_model, basket=None, min_maturity=None):
-    config = _config(pricing_model, basket, min_maturity)
+def _problem(pricing_model, basket=None, min_maturity=None, num_paths=4_000):
+    config = _config(pricing_model, basket, min_maturity, num_paths)
 
     return build_problem(
         pricing_model,
         config=config,
         market_data=_market_data(),
-        fitted_params=_params(),
+        calibration=CalibrationResult(params=_params()),
     )
 
 
@@ -94,7 +102,7 @@ def test_basket_feature_layout_follows_the_asset_count():
 
     wider = _problem(
         BASKET_BLACK_SCHOLES,
-        basket=BasketConfig(n_assets=5, num_paths=2_000, num_steps=10),
+        basket=BasketConfig(n_assets=5),
     )
 
     assert wider.feature_names == ("S1", "S2", "S3", "S4", "S5", "K", "T")
@@ -102,7 +110,7 @@ def test_basket_feature_layout_follows_the_asset_count():
 
 def test_weights_default_to_equal_shares():
     equal = _problem(
-        BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=4, num_paths=2_000)
+        BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=4)
     )
 
     assert bool(jnp.allclose(equal.weights, 0.25))
@@ -126,7 +134,7 @@ def test_unknown_pricing_model_is_rejected():
 
 def test_unknown_pricing_model_rejected_by_the_registry():
     try:
-        build_problem("heston", config=None, market_data=None, fitted_params=None)
+        build_problem("heston", config=None, market_data=None, calibration=None)
     except ValueError as e:
         assert "heston" in str(e)
     else:
@@ -217,9 +225,7 @@ def test_only_the_basket_declares_exchangeable_features():
     # unequal weights break exchangeability, so nothing may be permuted
     uneven = _problem(
         BASKET_BLACK_SCHOLES,
-        basket=BasketConfig(
-            n_assets=3, weights=(0.5, 0.3, 0.2), symmetrize=False, num_paths=2_000
-        ),
+        basket=BasketConfig(n_assets=3, weights=(0.5, 0.3, 0.2), symmetrize=False),
     )
 
     assert uneven.exchangeable_features == ()
@@ -238,7 +244,7 @@ def test_single_asset_basket_matches_the_analytic_call():
         num_steps=50,
     )
 
-    price = float(price_fn(jnp.array([SPOT, 100.0, 1.0])))
+    price = float(price_fn(jnp.array([SPOT, 100.0, 1.0]), jax.random.PRNGKey(0)))
     analytic = float(black_scholes_price_single(SPOT, 100.0, 1.0, SIGMA, R))
 
     assert abs(price - analytic) < 0.5
@@ -256,8 +262,10 @@ def test_basket_price_is_differentiable_twice():
 
     x = jnp.array([100.0, 100.0, 100.0, 100.0, 1.0])
 
-    gradient = jax.grad(price_fn)(x)
-    hvp = jax.jvp(jax.grad(price_fn), (x,), (jnp.ones(5),))[1]
+    keyed = lambda z: price_fn(z, jax.random.PRNGKey(0))
+
+    gradient = jax.grad(keyed)(x)
+    hvp = jax.jvp(jax.grad(keyed), (x,), (jnp.ones(5),))[1]
 
     assert gradient.shape == (5,)
     assert hvp.shape == (5,)
@@ -270,6 +278,92 @@ def test_basket_price_is_differentiable_twice():
 
     # dPrice/dK is negative for a call
     assert float(gradient[3]) < 0.0
+
+
+def test_european_payoff_is_priced_from_an_exact_terminal_draw():
+    # a terminal-only payoff needs no time stepping, so num_steps must not
+    # change the answer at all
+    def priced(num_steps):
+        return float(
+            make_basket_feature_price(
+                weights=jnp.full(3, 1.0 / 3.0),
+                corr=uniform_correlation(3, 0.5),
+                sigmas=jnp.full(3, SIGMA),
+                r=R,
+                payoff="european_call",
+                num_paths=20_000,
+                num_steps=num_steps,
+            )(jnp.array([100.0, 100.0, 100.0, 100.0, 1.0]), jax.random.PRNGKey(0))
+        )
+
+    assert priced(5) == priced(500)
+
+
+def test_path_dependent_payoff_still_uses_the_stepping_scheme():
+    def priced(num_steps):
+        return float(
+            make_basket_feature_price(
+                weights=jnp.full(3, 1.0 / 3.0),
+                corr=uniform_correlation(3, 0.5),
+                sigmas=jnp.full(3, SIGMA),
+                r=R,
+                payoff="asian_call",
+                num_paths=8_000,
+                num_steps=num_steps,
+            )(jnp.array([100.0, 100.0, 100.0, 100.0, 1.0]), jax.random.PRNGKey(0))
+        )
+
+    # an average over the path depends on how finely the path is sampled
+    assert priced(5) != priced(50)
+
+
+def test_exact_sampling_is_unbiased_against_the_closed_form():
+    # a one-asset basket is a vanilla call; averaging over independent keys
+    # must land on the closed form up to the smoothing offset
+    price_fn = make_basket_feature_price(
+        weights=jnp.array([1.0]),
+        corr=uniform_correlation(1, 0.0),
+        sigmas=jnp.array([SIGMA]),
+        r=R,
+        num_paths=20_000,
+    )
+
+    x = jnp.array([SPOT, 100.0, 1.0])
+
+    prices = jnp.array(
+        [float(price_fn(x, jax.random.PRNGKey(s))) for s in range(16)]
+    )
+
+    analytic = float(black_scholes_price_single(SPOT, 100.0, 1.0, SIGMA, R))
+
+    relative = float(jnp.mean(prices)) / analytic - 1.0
+
+    assert -0.01 < relative <= 0.001, f"unexpected sampling bias {relative:+.4%}"
+
+
+def test_exact_sampling_stays_twice_differentiable():
+    price_fn = make_basket_feature_price(
+        weights=jnp.full(3, 1.0 / 3.0),
+        corr=uniform_correlation(3, 0.5),
+        sigmas=jnp.full(3, SIGMA),
+        r=R,
+        num_paths=8_000,
+        symmetrize=True,
+    )
+
+    x = jnp.array([100.0, 100.0, 100.0, 100.0, 1.0])
+    keyed = lambda z: price_fn(z, jax.random.PRNGKey(0))
+
+    gradient = jax.grad(keyed)(x)
+    hvp = jax.jvp(jax.grad(keyed), (x,), (jnp.ones(5),))[1]
+
+    assert bool(jnp.all(jnp.isfinite(gradient)))
+    assert bool(jnp.all(jnp.isfinite(hvp)))
+
+    # the shape constraints the true price satisfies
+    assert bool(jnp.all((gradient[:3] > 0.0) & (gradient[:3] < 1.0 / 3.0)))
+    assert float(gradient[3]) < 0.0
+    assert float(gradient[4]) > 0.0
 
 
 def test_uniform_correlation_matrix():
@@ -302,7 +396,7 @@ def test_basket_dataset_shapes_follow_the_asset_count():
 
     wider = _dataset(
         BASKET_BLACK_SCHOLES,
-        basket=BasketConfig(n_assets=4, num_paths=4_000, num_steps=20),
+        basket=BasketConfig(n_assets=4),
         n_samples=2,
     )
 
@@ -451,7 +545,7 @@ def test_reference_points_are_in_domain():
 def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
     w = jnp.full(n, 1.0 / n) if weights is None else jnp.asarray(weights)
 
-    return make_basket_feature_price(
+    priced = make_basket_feature_price(
         weights=w,
         corr=uniform_correlation(n, rho),
         sigmas=jnp.full(n, SIGMA),
@@ -460,6 +554,9 @@ def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
         num_steps=20,
         symmetrize=symmetrize,
     )
+
+    # the symmetry tests are about the estimator at one fixed draw
+    return lambda x: priced(x, jax.random.PRNGKey(0))
 
 
 def test_raw_estimator_is_not_permutation_invariant():
@@ -568,6 +665,10 @@ if __name__ == "__main__":
         test_only_the_basket_declares_exchangeable_features,
         test_single_asset_basket_matches_the_analytic_call,
         test_basket_price_is_differentiable_twice,
+        test_european_payoff_is_priced_from_an_exact_terminal_draw,
+        test_path_dependent_payoff_still_uses_the_stepping_scheme,
+        test_exact_sampling_is_unbiased_against_the_closed_form,
+        test_exact_sampling_stays_twice_differentiable,
         test_uniform_correlation_matrix,
         test_black_scholes_dataset_shapes,
         test_basket_dataset_shapes_follow_the_asset_count,

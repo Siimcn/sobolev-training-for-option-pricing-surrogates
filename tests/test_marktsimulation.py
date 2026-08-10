@@ -3,6 +3,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import math
+
 import jax
 import jax.numpy as jnp
 
@@ -23,7 +25,7 @@ from marktsimulation.black_scholes import (
 from marktsimulation.black_scholes_mc import (
     MC_NUM_STEPS,
     bs_mc_price,
-    create_bs_mc_dataset_with_hvps,
+    simulate_terminal,
     generate_training_paths,
 )
 from marktsimulation.monte_carlo_pricer import MonteCarloPricer
@@ -327,23 +329,84 @@ def test_value_fn_selects_the_underlying():
 def test_bs_mc_price_matches_analytic_and_is_reproducible():
     x = jnp.array([S0, K, T, SIGMA, R])
 
-    first = float(bs_mc_price(x))
-    second = float(bs_mc_price(x))
+    key = jax.random.PRNGKey(0)
+
+    first = float(bs_mc_price(x, key))
+    second = float(bs_mc_price(x, key))
     analytic = float(black_scholes_price_single(S0, K, T, SIGMA, R))
 
-    assert first == second, "the default key must make labels reproducible"
+    assert first == second, "the same key must give the same label"
     assert abs(first - analytic) < 0.5
 
-    fresh = float(bs_mc_price(x, key=jax.random.PRNGKey(123)))
+    fresh = float(bs_mc_price(x, jax.random.PRNGKey(123)))
 
-    assert fresh != first
+    assert fresh != first, "a different key must re-draw the paths"
     assert abs(fresh - analytic) < 0.5
+
+
+def test_exact_terminal_sampling_is_unbiased():
+    # averaging over independent keys must converge on the closed form; a
+    # single key only tells you about that one draw
+    x = jnp.array([S0, K, T, SIGMA, R])
+
+    prices = jnp.array(
+        [float(bs_mc_price(x, jax.random.PRNGKey(s))) for s in range(24)]
+    )
+
+    analytic = float(black_scholes_price_single(S0, K, T, SIGMA, R))
+
+    # the estimator itself is unbiased; what remains is the payoff
+    # smoothing, which is a small, strictly negative offset by construction
+    relative = float(jnp.mean(prices)) / analytic - 1.0
+
+    assert -0.01 < relative <= 0.001, f"unexpected sampling bias {relative:+.4%}"
+
+
+def test_antithetic_sampling_reduces_variance():
+    x = jnp.array([S0, K, T, SIGMA, R])
+
+    def spread(antithetic):
+        return float(
+            jnp.std(
+                jnp.array(
+                    [
+                        float(
+                            bs_mc_price(
+                                x,
+                                jax.random.PRNGKey(s),
+                                num_paths=4_000,
+                                antithetic=antithetic,
+                            )
+                        )
+                        for s in range(24)
+                    ]
+                )
+            )
+        )
+
+    assert spread(True) < spread(False)
+
+
+def test_terminal_draws_are_lognormal_with_the_right_moments():
+    blocks = simulate_terminal(
+        S0, SIGMA, R, T, 200_000, jax.random.PRNGKey(3), antithetic=False
+    )
+
+    terminal = blocks[0]
+
+    assert len(blocks) == 1
+    assert bool(jnp.all(terminal > 0.0))
+
+    # E[S_T] = S_0 e^{rT} exactly, not approximately: the draw is the law
+    forward = S0 * math.exp(R * T)
+
+    assert abs(float(jnp.mean(terminal)) / forward - 1.0) < 0.01
 
 
 def test_mc_delta_matches_analytic():
     x = jnp.array([S0, K, T, SIGMA, R])
 
-    mc_delta = float(jax.grad(bs_mc_price)(x)[0])
+    mc_delta = float(jax.grad(bs_mc_price)(x, jax.random.PRNGKey(0))[0])
 
     assert abs(mc_delta - float(delta(S0, K, T, SIGMA, R))) < 0.05
 
@@ -359,18 +422,51 @@ def test_generate_training_paths_grid():
 
 
 def test_hvp_dataset_respects_sobolev_order():
+    from marktsimulation.sobolev_labels import create_sobolev_labels, label_keys
+
     X = jnp.tile(jnp.array([S0, K, T, SIGMA, R]), (2, 1))
     V = jnp.tile(jnp.eye(5)[0], (2, 1))
+    keys = label_keys(0, 2)
 
-    prices, gradients, hvps = create_bs_mc_dataset_with_hvps(X, V, sobolev_order=2)
+    price_fn = lambda x, key: bs_mc_price(x, key, num_paths=2_000)
+
+    prices, gradients, hvps = create_sobolev_labels(price_fn, X, V, keys, sobolev_order=2)
 
     assert prices.shape == (2,)
     assert gradients.shape == (2, 5)
     assert hvps.shape == (2, 5)
 
-    _, _, no_hvps = create_bs_mc_dataset_with_hvps(X, V, sobolev_order=1)
+    _, _, no_hvps = create_sobolev_labels(price_fn, X, V, keys, sobolev_order=1)
 
     assert no_hvps is None
+
+
+def test_label_keys_are_independent_unless_asked_otherwise():
+    from marktsimulation.sobolev_labels import label_keys
+
+    independent = label_keys(0, 8)
+    shared = label_keys(0, 8, shared=True)
+
+    assert independent.shape == (8, 2)
+    assert not bool(jnp.all(independent == independent[0]))
+    assert bool(jnp.all(shared == shared[0]))
+
+
+def test_labels_reject_a_key_count_mismatch():
+    from marktsimulation.sobolev_labels import create_sobolev_labels, label_keys
+
+    X = jnp.tile(jnp.array([S0, K, T, SIGMA, R]), (3, 1))
+    V = jnp.tile(jnp.eye(5)[0], (3, 1))
+
+    try:
+        create_sobolev_labels(
+            lambda x, key: bs_mc_price(x, key, num_paths=500),
+            X, V, label_keys(0, 2), sobolev_order=1,
+        )
+    except ValueError as e:
+        assert "one key per sample" in str(e)
+    else:
+        assert False, "a key/sample mismatch must raise"
 
 
 if __name__ == "__main__":
@@ -398,6 +494,11 @@ if __name__ == "__main__":
         test_monte_carlo_pricer_matches_analytic_call,
         test_value_fn_selects_the_underlying,
         test_bs_mc_price_matches_analytic_and_is_reproducible,
+        test_exact_terminal_sampling_is_unbiased,
+        test_antithetic_sampling_reduces_variance,
+        test_terminal_draws_are_lognormal_with_the_right_moments,
+        test_label_keys_are_independent_unless_asked_otherwise,
+        test_labels_reject_a_key_count_mismatch,
         test_mc_delta_matches_analytic,
         test_generate_training_paths_grid,
         test_hvp_dataset_respects_sobolev_order,
