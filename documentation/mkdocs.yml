@@ -14,8 +14,9 @@ nav:
         - 3.2 kalibrierung: code_structure/kalibrierung.md
         - 3.3 marktsimulation: code_structure/marktsimulation.md
         - 3.4 surrogate_modeling: code_structure/surrogate_modeling.md
-        - 3.5 risk_visualisierung: code_structure/risk_visualisierung.md
-        - 3.6 utils: code_structure/utils.md
+        - 3.5 pricing problems: code_structure/pricing_problems.md
+        - 3.6 risk_visualisierung: code_structure/risk_visualisierung.md
+        - 3.7 utils: code_structure/utils.md
         
 
 

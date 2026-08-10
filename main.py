@@ -2,6 +2,8 @@ import jax
 
 from risk_visualisierung.visualizer import Visualizer
 
+from surrogate_modeling.pricing_problem import build_problem
+
 from utils.experiment_logger import ExperimentLogger
 
 from pipeline.config import ExperimentConfig
@@ -13,6 +15,7 @@ from pipeline.data import (
 from pipeline.evaluation import (
     evaluate_surrogate,
     print_example_prediction,
+    validate_surrogate,
 )
 from pipeline.market import load_and_calibrate
 from pipeline.model import build_surrogate
@@ -26,7 +29,7 @@ from pipeline.training import train_surrogate
 
 
 def main(config: ExperimentConfig = None):
-    """Market data -> calibration -> Sobolev surrogate -> XVA."""
+    """Market data -> calibration -> Sobolev surrogate -> validation -> risk."""
 
     config = config or ExperimentConfig()
 
@@ -43,8 +46,17 @@ def main(config: ExperimentConfig = None):
 
     market_data, fitted_params = market
 
-    dataset = build_dataset(market_data, fitted_params, config)
-    plot_training_path_samples(dataset, fitted_params, config)
+    # every later stage asks this object what it is pricing, so none of
+    # them branches on the configured model
+    problem = build_problem(
+        config.data.pricing_model,
+        config=config,
+        market_data=market_data,
+        fitted_params=fitted_params,
+    )
+
+    dataset = build_dataset(problem, config)
+    plot_training_path_samples(dataset, problem, config)
 
     train_dataset, test_dataset = split_dataset(dataset, config)
 
@@ -58,27 +70,30 @@ def main(config: ExperimentConfig = None):
         checkpoint_path=logger.path("best_model.eqx"),
     )
 
-    metrics = evaluate_surrogate(trainer, test_dataset, config)
+    metrics = evaluate_surrogate(trainer, test_dataset, problem)
 
     plot_training_diagnostics(
         history,
         trainer.model,
         test_dataset,
-        market_data,
-        fitted_params,
+        problem,
         config,
     )
 
     print_example_prediction(trainer.model, dataset)
 
-    xva = run_risk_analysis(trainer.model, market_data, fitted_params, config)
+    validation = validate_surrogate(trainer.model, problem, config)
+
+    xva = run_risk_analysis(trainer.model, problem, config)
 
     save_artifacts(
         logger,
-        config.training,
+        config,
+        problem,
         market_data,
         fitted_params,
         metrics,
+        validation,
         xva,
     )
 

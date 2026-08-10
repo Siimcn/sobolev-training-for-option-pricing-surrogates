@@ -1,318 +1,185 @@
-import jax
-import jax.numpy as jnp
+from typing import Dict, Optional
 
-from marktsimulation.pricing_model import (
-    BlackScholesModel,
-    BlackScholesParams,
-)
+from risk_visualisierung.riskengine import RiskEngine
 
-from marktsimulation.timesteppingscheme import (
-    EulerMaruyama,
-)
+from risk_visualisierung.visualizer import Visualizer
 
-from marktsimulation.black_scholes_mc import (
-    bs_mc_price,
-)
-
-from marktsimulation.black_scholes import (
-    black_scholes_price_single,
-)
-
-from risk_visualisierung.riskengine import (
-    RiskEngine,
-)
-
-from risk_visualisierung.visualizer import (
-    Visualizer,
-)
-
-
-def mc_reference_check(
-    surrogate,
-    market_data,
-    fitted_params,
-    seed: int = 12345,
-):
-    """
-    Independent Monte-Carlo-vs-analytic-vs-surrogate sanity check.
-
-    Comparing the surrogate against the analytic BS price alone cannot
-    tell "learned the MC operator" apart from "learned the analytic
-    formula", since the two are close by construction. This re-runs the
-    MC pricer with a fresh seed (training uses a fixed PRNGKey(0)) and
-    reports all three side by side.
-    """
-
-    print("\n===== Monte Carlo Reference Check (independent seed) =====\n")
-
-    spot = market_data.spot
-    sigma = fitted_params.sigma
-    r = fitted_params.r
-
-    strikes = [0.85 * spot, spot, 1.15 * spot]
-    maturities = [0.1, 0.5, 1.0]
-
-    key = jax.random.PRNGKey(seed)
-
-    print(f"{'S':>8s} {'K':>8s} {'T':>6s} | {'Surrogate':>10s} {'Fresh MC':>10s} {'Analytic':>10s} | {'Sur-vs-MC':>10s} {'MC-vs-BS':>10s}")
-
-    rows = []
-
-    for i, (K, T) in enumerate([(K, T) for K in strikes for T in maturities]):
-
-        x = jnp.array([spot, K, T, sigma, r])
-
-        surrogate_price = float(surrogate.predict_price(x))
-
-        mc_key = jax.random.fold_in(key, i)
-        fresh_mc_price = float(bs_mc_price(x, key=mc_key))
-
-        analytic_price = float(
-            black_scholes_price_single(
-                spot=spot, strike=K, maturity=max(T, 1e-8), sigma=sigma, r=r, is_call=True
-            )
-        )
-
-        sur_vs_mc = abs(surrogate_price - fresh_mc_price) / (abs(fresh_mc_price) + 1e-8)
-        mc_vs_bs = abs(fresh_mc_price - analytic_price) / (abs(analytic_price) + 1e-8)
-
-        print(
-            f"{spot:8.2f} {K:8.2f} {T:6.3f} | "
-            f"{surrogate_price:10.4f} {fresh_mc_price:10.4f} {analytic_price:10.4f} | "
-            f"{100*sur_vs_mc:9.2f}% {100*mc_vs_bs:9.2f}%"
-        )
-
-        rows.append(
-            {
-                "S": spot, "K": K, "T": T,
-                "surrogate": surrogate_price, "mc": fresh_mc_price, "analytic": analytic_price,
-                "surrogate_vs_mc_pct": 100 * sur_vs_mc, "mc_vs_analytic_pct": 100 * mc_vs_bs,
-            }
-        )
-
-    mean_sur_vs_mc = sum(row["surrogate_vs_mc_pct"] for row in rows) / len(rows)
-    mean_mc_vs_bs = sum(row["mc_vs_analytic_pct"] for row in rows) / len(rows)
-
-    print(
-        f"\nMean |surrogate - fresh MC| / |fresh MC|   : {mean_sur_vs_mc:.2f}%"
-    )
-    print(
-        f"Mean |fresh MC  - analytic| / |analytic|   : {mean_mc_vs_bs:.2f}%"
-    )
-    print(
-        "(if the first number is not clearly larger than the second, the surrogate\n"
-        " is at least as consistent with Monte Carlo as MC is with its own analytic\n"
-        " benchmark - i.e. there is no evidence the surrogate learned 'analytic BS'\n"
-        " instead of 'the MC operator'.)"
-    )
-
-    return rows
+from surrogate_modeling.pricing_problem import PricingProblem
 
 
 def run_xva_analysis(
     surrogate,
-    market_data,
-    fitted_params,
-):
+    problem: PricingProblem,
+    horizon: float = 1.0,
+    num_paths: int = 100,
+    num_steps: int = 252,
+    seed: int = 0,
+) -> Optional[Dict[str, float]]:
+    """
+    Exposure profiles and XVA along a simulated future.
+
+    The future states and the surrogate's inputs along them come from
+    `problem.exposure_paths`, so nothing here assumes a feature layout.
+    A problem that cannot produce them returns None and the stage is
+    skipped; one without a closed form is priced by the surrogate alone
+    and reported without the reference column, rather than being compared
+    against a formula that does not apply to it.
+    """
+
+    strikes = problem.exposure_strikes()
+
+    if not strikes:
+        print(
+            f"\nSkipping XVA: '{problem.name}' declares no exposure strikes."
+        )
+        return None
+
+    simulated = {
+        label: problem.exposure_paths(
+            strike=strike,
+            horizon=horizon,
+            num_paths=num_paths,
+            num_steps=num_steps,
+            seed=seed,
+        )
+        for label, strike in strikes.items()
+    }
+
+    if any(paths is None for paths in simulated.values()):
+        print(
+            f"\nSkipping XVA: '{problem.name}' does not implement "
+            f"exposure_paths."
+        )
+        return None
 
     print(
         "\nGenerating Monte Carlo paths..."
     )
 
-    scheme = EulerMaruyama()
+    time_grid = next(iter(simulated.values()))[0]
 
-    mc_model = BlackScholesModel(
-        scheme=scheme
-    )
+    reference_value_fn = _reference_value_fn(problem)
 
-    # use the calibrated rate, not a hardcoded constant
-    params = BlackScholesParams(
-        r=fitted_params.r,
-        sigma=fitted_params.sigma,
-    )
-
-    num_paths = 100
-    num_steps = 252
-
-    dt = 1.0 / 252.0
-
-    mc_paths = scheme.generate_paths(
-        s0=jnp.array([market_data.spot]),
-        drift_fn=mc_model.drift,
-        diffusion_fn=mc_model.diffusion,
-        params=params,
-        key=jax.random.PRNGKey(0),
-        num_paths=num_paths,
-        num_steps=num_steps,
-        dt=dt,
-    )
-
-    mc_time_grid = jnp.linspace(
-        0.0,
-        1.0,
-        num_steps + 1,
-    )
-
-    Visualizer.plot_mc_paths(
-        mc_time_grid,
-        mc_paths,
-        num_paths=20,
-    )
-
-    S_path = mc_paths[:, :, 0]
-
-    sigma = fitted_params.sigma
-    r = fitted_params.r
-    maturity = 1.0
-
-    remaining_time = (
-        maturity - mc_time_grid
-    )
-
-    remaining_time = jnp.maximum(
-        remaining_time,
-        1e-8,
-    )
-
-    def build_feature_paths(K: float):
-        return jnp.stack(
-            [
-                S_path,
-
-                K * jnp.ones_like(S_path),
-
-                jnp.broadcast_to(
-                    remaining_time,
-                    S_path.shape,
-                ),
-
-                sigma * jnp.ones_like(S_path),
-
-                r * jnp.ones_like(S_path),
-            ],
-            axis=-1,
-        )
-
-    print(
-        "\nMC paths shape:",
-        mc_paths.shape
-    )
+    risk_engine = RiskEngine()
 
     # a deep ITM call is near-linear in S, so a single fixed K would hide
     # Greeks errors that ATM catches
-    risk_engine = RiskEngine()
-
-    K_atm = float(market_data.spot)
-    strikes_to_validate = {
-        "ITM": 0.85 * K_atm,
-        "ATM": K_atm,
-        "OTM": 1.15 * K_atm,
-    }
-
     print("\n===== XVA VALIDATION (across moneyness) =====\n")
+
+    if reference_value_fn is None:
+        print(
+            f"(no closed form for '{problem.name}': exposures are the "
+            f"surrogate's own, with no independent reference)\n"
+        )
 
     results = {}
 
-    for label, K in strikes_to_validate.items():
+    for label, strike in strikes.items():
 
-        feature_paths = build_feature_paths(K)
+        _, feature_paths = simulated[label]
 
         xva_k = risk_engine.compute_xva_risk(
             surrogate,
             feature_paths,
-            mc_time_grid,
-            params.r,
+            time_grid,
+            problem.discount_rate,
         )
+
+        results[label] = {
+            "K": strike,
+            "xva": xva_k,
+            "features": feature_paths,
+        }
+
+        if reference_value_fn is None:
+            print(
+                f"{label:4s} (K={strike:8.2f}) | "
+                f"CVA Surrogate: {xva_k['CVA']:.6f} | "
+                f"NetXVA Surrogate: {xva_k['NetXVA']:.6f}"
+            )
+            continue
 
         xva_reference_k = risk_engine.compute_xva_risk_reference(
+            reference_value_fn,
             feature_paths,
-            mc_time_grid,
-            params.r,
+            time_grid,
+            problem.discount_rate,
         )
 
-        cva_error_k = (
-            abs(xva_k["CVA"] - xva_reference_k["CVA"])
-            / (abs(xva_reference_k["CVA"]) + 1e-12)
-        )
-
-        netxva_error_k = (
-            abs(xva_k["NetXVA"] - xva_reference_k["NetXVA"])
-            / (abs(xva_reference_k["NetXVA"]) + 1e-12)
-        )
+        cva_error_k = _relative(xva_k["CVA"], xva_reference_k["CVA"])
+        netxva_error_k = _relative(xva_k["NetXVA"], xva_reference_k["NetXVA"])
 
         print(
-            f"{label:4s} (K={K:8.2f}) | "
+            f"{label:4s} (K={strike:8.2f}) | "
             f"CVA Surrogate: {xva_k['CVA']:.6f} | "
             f"CVA Reference: {xva_reference_k['CVA']:.6f} | "
             f"CVA Error: {100*cva_error_k:.2f}% | "
             f"NetXVA Error: {100*netxva_error_k:.2f}%"
         )
 
-        results[label] = {
-            "K": K,
-            "xva": xva_k,
-            "xva_reference": xva_reference_k,
-            "cva_error": cva_error_k,
-            "netxva_error": netxva_error_k,
-        }
+        results[label].update(
+            {
+                "xva_reference": xva_reference_k,
+                "cva_error": cva_error_k,
+                "netxva_error": netxva_error_k,
+            }
+        )
 
-    mc_reference_check(surrogate, market_data, fitted_params)
+    primary = results.get("ATM", results[next(iter(results))])
 
-    # ATM is the primary, returned XVA (most curvature-sensitive)
-    atm = results["ATM"]
-    xva = atm["xva"]
-    xva_reference = atm["xva_reference"]
+    xva = primary["xva"]
+
+    # feature 0 is the primary underlying, by the PricingProblem convention
+    Visualizer.plot_mc_paths(
+        time_grid,
+        primary["features"][:, :, 0],
+        num_paths=20,
+    )
 
     Visualizer.report_risk_metrics(
         xva
     )
 
-    print("\n===== XVA VALIDATION (ATM, primary) =====\n")
-
-    print(
-        f"CVA Reference : "
-        f"{xva_reference['CVA']:.6f}"
-    )
-
-    print(
-        f"CVA Surrogate : "
-        f"{xva['CVA']:.6f}"
-    )
-
-    print(
-        f"DVA Reference : "
-        f"{xva_reference['DVA']:.6f}"
-    )
-
-    print(
-        f"DVA Surrogate : "
-        f"{xva['DVA']:.6f}"
-    )
-
-    print(
-        f"NetXVA Reference : "
-        f"{xva_reference['NetXVA']:.6f}"
-    )
-
-    print(
-        f"NetXVA Surrogate : "
-        f"{xva['NetXVA']:.6f}"
-    )
-
-    print(
-        f"CVA Error : "
-        f"{100*atm['cva_error']:.2f}%"
-    )
-
-    print(
-        f"NetXVA Error : "
-        f"{100*atm['netxva_error']:.2f}%"
-    )
+    _print_primary(primary, reference_value_fn is not None)
 
     Visualizer.plot_exposure_profiles(
-        mc_time_grid,
+        time_grid,
         xva["EPE"],
         xva["ENE"],
     )
 
     return xva
+
+
+def _reference_value_fn(problem: PricingProblem):
+    """The problem's closed form, when it has one."""
+
+    if problem.analytic_price(problem.baseline_features()) is None:
+        return None
+
+    return problem.analytic_price
+
+
+def _print_primary(primary, has_reference: bool) -> None:
+
+    xva = primary["xva"]
+
+    print("\n===== XVA (primary strike) =====\n")
+
+    if not has_reference:
+        for name in ("CVA", "DVA", "NetXVA"):
+            print(f"{name:16s}: {xva[name]:.6f}")
+        return
+
+    reference = primary["xva_reference"]
+
+    for name in ("CVA", "DVA", "NetXVA"):
+        print(f"{name} Reference : {reference[name]:.6f}")
+        print(f"{name} Surrogate : {xva[name]:.6f}")
+
+    print(f"\nCVA Error    : {100*primary['cva_error']:.2f}%")
+    print(f"NetXVA Error : {100*primary['netxva_error']:.2f}%")
+
+
+def _relative(value: float, reference: float) -> float:
+    return abs(value - reference) / (abs(reference) + 1e-12)

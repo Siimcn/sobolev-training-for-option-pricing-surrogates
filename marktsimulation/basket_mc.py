@@ -107,13 +107,56 @@ def make_basket_feature_price(
     extra cost; the gradient permutes back correctly.
     """
 
-    n_assets = len(weights)
-
     if symmetrize and not is_exchangeable(weights, sigmas, corr):
         raise ValueError(
             "symmetrize requires an exchangeable basket: equal weights, "
             "equal volatilities and a uniform correlation."
         )
+
+    key = jax.random.PRNGKey(seed)
+
+    def price_fn(x: jnp.ndarray) -> jnp.ndarray:
+        return basket_feature_price(
+            x,
+            weights=weights,
+            corr=corr,
+            sigmas=sigmas,
+            r=r,
+            key=key,
+            num_paths=num_paths,
+            num_steps=num_steps,
+            smooth_fraction=smooth_fraction,
+            symmetrize=symmetrize,
+        )
+
+    return price_fn
+
+
+def basket_feature_price(
+    x: jnp.ndarray,
+    weights: jnp.ndarray,
+    corr: jnp.ndarray,
+    sigmas: jnp.ndarray,
+    r: float,
+    key: jnp.ndarray,
+    num_paths: int = 50_000,
+    num_steps: int = 50,
+    smooth_fraction: float = 0.05,
+    symmetrize: bool = False,
+) -> jnp.ndarray:
+    """
+    One basket price for x = [S_1, ..., S_n, K, T] under an explicit `key`.
+
+    `make_basket_feature_price` binds the key once for a whole dataset;
+    passing it here is what lets the validation stage re-price the same
+    point with independent random numbers.
+    """
+
+    n_assets = len(weights)
+
+    s0 = jnp.sort(x[:n_assets]) if symmetrize else x[:n_assets]
+    strike = x[n_assets]
+    maturity = x[n_assets + 1]
 
     model = BasketBlackScholesModel(scheme=EulerMaruyama())
 
@@ -124,34 +167,23 @@ def make_basket_feature_price(
         corr=corr,
     )
 
-    key = jax.random.PRNGKey(seed)
+    # same construction as _payoff_smoothing_width, with the basket
+    # value standing in for the single-asset spot
+    basket0 = jnp.sum(weights * s0)
+    dispersion = basket0 * jnp.mean(sigmas) * jnp.sqrt(jnp.maximum(maturity, 1e-6))
+    smooth_w = jnp.maximum(smooth_fraction * dispersion, 1e-3)
 
-    sigma_mean = jnp.mean(sigmas)
-
-    def price_fn(x: jnp.ndarray) -> jnp.ndarray:
-        s0 = jnp.sort(x[:n_assets]) if symmetrize else x[:n_assets]
-        strike = x[n_assets]
-        maturity = x[n_assets + 1]
-
-        # same construction as _payoff_smoothing_width, with the basket
-        # value standing in for the single-asset spot
-        basket0 = jnp.sum(weights * s0)
-        dispersion = basket0 * sigma_mean * jnp.sqrt(jnp.maximum(maturity, 1e-6))
-        smooth_w = jnp.maximum(smooth_fraction * dispersion, 1e-3)
-
-        return basket_price(
-            model,
-            params,
-            s0,
-            strike,
-            maturity,
-            key,
-            num_paths=num_paths,
-            num_steps=num_steps,
-            smooth_w=smooth_w,
-        )
-
-    return price_fn
+    return basket_price(
+        model,
+        params,
+        s0,
+        strike,
+        maturity,
+        key,
+        num_paths=num_paths,
+        num_steps=num_steps,
+        smooth_w=smooth_w,
+    )
 
 
 def generate_basket_training_paths(
@@ -173,8 +205,38 @@ def generate_basket_training_paths(
 
     n_assets = len(weights)
 
-    s0 = x[:n_assets]
-    maturity = x[n_assets + 1]
+    time_grid, paths = simulate_basket_assets(
+        s0=x[:n_assets],
+        weights=weights,
+        corr=corr,
+        sigmas=sigmas,
+        r=r,
+        horizon=x[n_assets + 1],
+        num_paths=num_paths,
+        num_steps=num_steps,
+        key=jax.random.PRNGKey(seed),
+    )
+
+    return time_grid, jnp.sum(paths * weights, axis=-1)
+
+
+def simulate_basket_assets(
+    s0: jnp.ndarray,
+    weights: jnp.ndarray,
+    corr: jnp.ndarray,
+    sigmas: jnp.ndarray,
+    r: float,
+    horizon: float,
+    num_paths: int,
+    num_steps: int,
+    key: jnp.ndarray,
+):
+    """
+    Correlated per-asset paths, shaped `(num_paths, num_steps + 1, n_assets)`.
+
+    The individual assets rather than the weighted basket, because the
+    surrogate's features are the spots themselves.
+    """
 
     model = BasketBlackScholesModel(scheme=EulerMaruyama())
 
@@ -190,16 +252,14 @@ def generate_basket_training_paths(
         drift_fn=model.drift,
         diffusion_fn=model.diffusion,
         params=params,
-        key=jax.random.PRNGKey(seed),
+        key=key,
         num_paths=num_paths,
         num_steps=num_steps,
-        dt=maturity / num_steps,
+        dt=horizon / num_steps,
         corr=model.noise_correlation(params),
     )
 
-    time_grid = jnp.linspace(0.0, maturity, num_steps + 1)
-
-    return time_grid, jnp.sum(paths * weights, axis=-1)
+    return jnp.linspace(0.0, horizon, num_steps + 1), paths
 
 
 def basket_greeks(

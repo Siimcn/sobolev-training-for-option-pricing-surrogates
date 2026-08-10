@@ -1,20 +1,17 @@
 import jax
 import jax.numpy as jnp
 
-from typing import Dict
-
-
-from marktsimulation.black_scholes import (
-    black_scholes_price,
-)
-
-from marktsimulation.pricing_model import (
-    BlackScholesParams,
-)
-
+from typing import Callable, Dict
 
 
 class RiskEngine:
+    """
+    Exposure and XVA from a valuation along simulated future states.
+
+    Nothing here knows what is being priced: it is handed a block of
+    feature paths and something that values them, so it works for any
+    PricingProblem that can produce those paths.
+    """
 
     def __init__(
         self,
@@ -32,93 +29,40 @@ class RiskEngine:
         discount_rate: float = 0.0,
     ) -> Dict:
 
-        evaluate = jax.vmap(
-            jax.vmap(
-                surrogate.predict_price
-            )
+        return self.compute_xva_risk_reference(
+            surrogate.predict_price,
+            paths,
+            time_grid,
+            discount_rate,
         )
 
-        V = evaluate(paths)
-
-        discount_factors = jnp.exp(
-            -discount_rate * time_grid
-        )
-
-        discounted_V = (
-            V * discount_factors
-        )
-
-        EPE = jnp.mean(
-            jnp.maximum(
-                discounted_V,
-                0.0,
-            ),
-            axis=0,
-        )
-
-        ENE = jnp.mean(
-            jnp.maximum(
-                -discounted_V,
-                0.0,
-            ),
-            axis=0,
-        )
-
-        survival = jnp.exp(
-            -self.hazard_rate
-            * time_grid
-        )
-
-        default_probs = (
-            survival[:-1]
-            - survival[1:]
-        )
-
-        # survival differences are one shorter than time_grid
-        default_probs = jnp.concatenate(
-            [
-                default_probs,
-                jnp.array([0.0]),
-            ]
-        )
-
-        LGD = (
-            1.0
-            - self.recovery_rate
-        )
-
-        cva = LGD * jnp.sum(
-            EPE * default_probs
-        )
-
-        dva = LGD * jnp.sum(
-            ENE * default_probs
-        )
-
-        return {
-            "EPE": EPE,
-            "ENE": ENE,
-            "CVA": float(cva),
-            "DVA": float(dva),
-            "NetXVA": float(cva - dva),
-            "V_matrix": V,
-        }
-    
-    
     def compute_xva_risk_reference(
         self,
+        value_fn: Callable[[jnp.ndarray], jnp.ndarray],
         paths: jnp.ndarray,
         time_grid: jnp.ndarray,
         discount_rate: float = 0.0,
-    ):
+    ) -> Dict:
+        """
+        `value_fn` prices one feature row. Passing it in is what makes the
+        reference model-agnostic - it used to be the closed-form
+        Black-Scholes price, which silently mispriced anything else.
+        """
 
-        evaluate = jax.vmap(
-            jax.vmap(
-                self.value_state
-            )
+        evaluate = jax.vmap(jax.vmap(value_fn))
+
+        return self._exposure_metrics(
+            evaluate(paths),
+            time_grid,
+            discount_rate,
         )
 
-        V = evaluate(paths)
+    def _exposure_metrics(
+        self,
+        V: jnp.ndarray,
+        time_grid: jnp.ndarray,
+        discount_rate: float,
+    ) -> Dict:
 
         discount_factors = jnp.exp(
             -discount_rate * time_grid
@@ -183,30 +127,6 @@ class RiskEngine:
             "NetXVA": float(cva - dva),
             "V_matrix": V,
         }
-
-
-    
-    def value_state(self, x):
-
-        maturity = jnp.maximum(
-            x[2],
-            1e-8,
-        )
-
-        params = BlackScholesParams(
-            r=x[4],
-            sigma=x[3],
-        )
-
-        return black_scholes_price(
-            params=params,
-            strikes=jnp.array([x[1]]),
-            maturities=jnp.array([maturity]),
-            is_call=jnp.array([True]),
-            spot=x[0],
-        )[0]
-
-
 
     def report(
         self,

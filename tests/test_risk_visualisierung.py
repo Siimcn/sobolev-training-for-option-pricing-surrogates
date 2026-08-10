@@ -124,39 +124,54 @@ def test_recovery_and_hazard_rates_scale_the_adjustment():
     assert cva(riskier) > cva(base)
 
 
-def test_value_state_matches_the_analytic_price():
-    engine = RiskEngine()
-
-    x = jnp.array([SPOT, STRIKE, 0.5, SIGMA, R])
-
-    analytic = float(black_scholes_price_single(SPOT, STRIKE, 0.5, SIGMA, R))
-
-    assert abs(float(engine.value_state(x)) - analytic) < 1e-10
-
-
-def test_value_state_survives_zero_maturity():
-    engine = RiskEngine()
-
-    value = float(engine.value_state(jnp.array([SPOT, STRIKE, 0.0, SIGMA, R])))
-
-    assert math.isfinite(value)
-    assert value >= 0.0
-
-
 def test_reference_engine_agrees_with_a_perfect_surrogate():
     engine = RiskEngine()
     time_grid = jnp.linspace(0.0, 1.0, N_STEPS)
     paths = _feature_paths(time_grid)
 
+    value_fn = _analytic_value_fn()
+
     class AnalyticSurrogate:
         def predict_price(self, x):
-            return engine.value_state(x)
+            return value_fn(x)
 
     surrogate_result = engine.compute_xva_risk(AnalyticSurrogate(), paths, time_grid, R)
-    reference = engine.compute_xva_risk_reference(paths, time_grid, R)
+    reference = engine.compute_xva_risk_reference(value_fn, paths, time_grid, R)
 
     assert abs(surrogate_result["CVA"] - reference["CVA"]) < 1e-10
     assert abs(surrogate_result["NetXVA"] - reference["NetXVA"]) < 1e-10
+
+
+def test_reference_pricer_is_injected_not_assumed():
+    # regression: the reference used to hardcode the Black-Scholes formula
+    # on x = [S, K, T, sigma, r], which silently mispriced any other layout
+    engine = RiskEngine()
+    time_grid = jnp.linspace(0.0, 1.0, N_STEPS)
+    paths = _feature_paths(time_grid)
+
+    constant = engine.compute_xva_risk_reference(
+        lambda x: jnp.asarray(7.0) + 0.0 * jnp.sum(x), paths, time_grid, R
+    )
+
+    assert bool(jnp.allclose(constant["V_matrix"], 7.0))
+    assert constant["CVA"] > 0.0
+    assert constant["DVA"] == 0.0
+
+
+def _analytic_value_fn():
+    """The closed form the reference engine used to hardcode."""
+
+    def value_fn(x):
+        return black_scholes_price_single(
+            spot=x[0],
+            strike=x[1],
+            maturity=jnp.maximum(x[2], 1e-8),
+            sigma=x[3],
+            r=x[4],
+            is_call=True,
+        )
+
+    return value_fn
 
 
 def test_risk_report_runs():
@@ -251,12 +266,25 @@ def test_surrogate_surface_plot():
             fixed_input=jnp.array([SPOT, STRIKE, 1.0, SIGMA, R]),
             x_idx=0, y_idx=1,
             x_range=(80.0, 120.0), y_range=(80.0, 120.0),
+            feature_labels=("S1", "S2", "S3", "K", "T"),
             grid_points=6, filename="surface.png",
         )
 
         assert os.path.exists(os.path.join(tmp, "surface.png"))
 
     _with_temp_logger(body)
+
+
+def test_surface_labels_come_from_the_caller_not_a_fixed_table():
+    # regression: the axis names used to be a hardcoded [S, K, T, sigma, r]
+    # table, so every basket surface was labelled with features it lacks,
+    # and a sixth feature raised KeyError
+    labels = ("S1", "S2", "S3", "K", "T")
+
+    assert Visualizer._feature_label(labels, 1) == "S2"
+    assert Visualizer._feature_label(labels, 4) == "T"
+    assert Visualizer._feature_label(labels, 9) == "Input 9"
+    assert Visualizer._feature_label((), 0) == "Input 0"
 
 
 def test_rolling_average_handles_short_and_oversized_windows():
@@ -281,15 +309,15 @@ if __name__ == "__main__":
         test_negative_exposure_produces_dva_and_no_cva,
         test_exposures_are_non_negative_and_net_is_consistent,
         test_recovery_and_hazard_rates_scale_the_adjustment,
-        test_value_state_matches_the_analytic_price,
-        test_value_state_survives_zero_maturity,
         test_reference_engine_agrees_with_a_perfect_surrogate,
+        test_reference_pricer_is_injected_not_assumed,
         test_risk_report_runs,
         test_training_history_plot_is_written,
         test_training_history_plot_handles_unused_sobolev_terms,
         test_mc_path_plot_accepts_2d_and_3d_paths,
         test_price_comparison_and_exposure_plots,
         test_surrogate_surface_plot,
+        test_surface_labels_come_from_the_caller_not_a_fixed_table,
         test_rolling_average_handles_short_and_oversized_windows,
         test_metric_reports_run,
     ]:

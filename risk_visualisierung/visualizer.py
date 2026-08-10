@@ -25,6 +25,16 @@ class Visualizer:
 
 
     @staticmethod
+    def _feature_label(labels, index: int) -> str:
+        """Falls back to a positional name, so an unlabelled model still plots."""
+
+        if index < len(labels):
+            return str(labels[index])
+
+        return f"Input {index}"
+
+
+    @staticmethod
     def _save(
         filename: str,
     ):
@@ -374,17 +384,17 @@ class Visualizer:
         y_idx: int,
         x_range,
         y_range,
+        feature_labels=(),
         grid_points: int = 50,
         filename: str = "surrogate_surface.png",
     ):
-        
-        feature_names = {
-            0: "Spot Price S",
-            1: "Strike K",
-            2: "Maturity T",
-            3: "Volatility σ",
-            4: "Interest Rate r",
-        }
+        """
+        A 2-D slice through the surrogate's input space.
+
+        `feature_labels` names the axes. It is passed in rather than known
+        here, because which features exist depends on what is being priced
+        - assuming [S, K, T, sigma, r] mislabels every other model.
+        """
 
         x = jnp.linspace(
             x_range[0],
@@ -441,26 +451,16 @@ class Visualizer:
             cmap="viridis",
         )
 
-        ax.set_xlabel(
-            feature_names.get(
-                x_idx,
-                f"Input {x_idx}"
-            )
-        )
+        x_label = Visualizer._feature_label(feature_labels, x_idx)
+        y_label = Visualizer._feature_label(feature_labels, y_idx)
 
-        ax.set_ylabel(
-            feature_names.get(
-                y_idx,
-                f"Input {y_idx}"
-            )
-        )
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
 
         ax.set_zlabel("Price")
 
         ax.set_title(
-            f"Option Price Surface: "
-            f"{feature_names[x_idx]} vs "
-            f"{feature_names[y_idx]}"
+            f"Option Price Surface: {x_label} vs {y_label}"
         )
 
         plt.tight_layout()

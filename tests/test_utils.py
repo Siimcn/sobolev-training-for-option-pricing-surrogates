@@ -8,8 +8,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import jax.numpy as jnp
 
+from kalibrierung.market_data import MarketData
+from marktsimulation.pricing_model import BlackScholesParams
+from pipeline.config import BasketConfig, DataConfig, ExperimentConfig
+from surrogate_modeling.pricing_problem import build_problem
 from surrogate_modeling.training_config import TrainingConfig
 from utils.experiment_logger import ExperimentLogger, LoggerWriter
+
+
+def _problem(config):
+    market_data = MarketData(
+        spot=100.0,
+        strikes=jnp.array([80.0, 100.0, 120.0]),
+        maturities=jnp.array([0.25, 0.5, 1.0]),
+        market_prices=jnp.ones(3),
+        is_call=jnp.array([True, True, True]),
+    )
+
+    return build_problem(
+        config.data.pricing_model,
+        config=config,
+        market_data=market_data,
+        fitted_params=BlackScholesParams(r=0.05, sigma=0.2),
+    )
 
 
 @contextmanager
@@ -158,6 +179,58 @@ def test_save_config_serializes_the_training_config():
         assert saved["early_stopping"] is True
 
 
+def test_save_config_archives_a_nested_experiment_config():
+    # the whole point: pricing model, domain and basket structure must be
+    # recoverable from the artifacts, not just the training hyperparameters
+    config = ExperimentConfig(
+        data=DataConfig(pricing_model="basket_black_scholes", min_maturity=0.05),
+        basket=BasketConfig(n_assets=3, correlation=0.5, symmetrize=True),
+    )
+
+    with _logger() as (logger, _):
+        logger.save_config(config.to_dict(_problem(config)))
+
+        saved = _read_json(logger.path("config.json"))
+
+    assert saved["data"]["pricing_model"] == "basket_black_scholes"
+    assert abs(saved["data"]["min_maturity"] - 0.05) < 1e-12
+    assert saved["data"]["n_samples"] == config.data.n_samples
+
+    assert saved["basket"]["n_assets"] == 3
+    assert abs(saved["basket"]["correlation"] - 0.5) < 1e-12
+    assert saved["basket"]["symmetrize"] is True
+    assert saved["basket"]["weights"] is None
+
+    assert saved["market"]["ticker"] == "AAPL"
+    assert saved["network"]["in_size"] is None
+    assert saved["training"]["selection_metric"] == "price_gradient"
+
+    assert saved["derived"]["problem"] == "basket_black_scholes"
+    assert saved["derived"]["feature_names"] == ["S1", "S2", "S3", "K", "T"]
+    assert saved["derived"]["n_features"] == 5
+
+    # the sampled domain is archived too, so a plot range in a report can
+    # be checked against what the surrogate was actually trained on
+    assert len(saved["derived"]["domain_low"]) == 5
+    assert saved["derived"]["domain_low"][4] >= 0.05
+    assert saved["derived"]["exchangeable_features"] == [0, 1, 2]
+
+
+def test_two_pricing_models_no_longer_share_a_config_file():
+    bs = ExperimentConfig(data=DataConfig(pricing_model="black_scholes"))
+    basket = ExperimentConfig(data=DataConfig(pricing_model="basket_black_scholes"))
+
+    bs_dict = bs.to_dict(_problem(bs))
+    basket_dict = basket.to_dict(_problem(basket))
+
+    assert bs_dict != basket_dict
+    assert bs_dict["derived"]["feature_names"] != basket_dict["derived"]["feature_names"]
+
+
+def test_config_without_a_problem_omits_the_derived_block():
+    assert "derived" not in ExperimentConfig().to_dict()
+
+
 def test_save_calibration_and_report():
     class Params:
         sigma = 0.25
@@ -192,6 +265,9 @@ if __name__ == "__main__":
         test_save_metrics_coerces_values_to_json,
         test_save_xva_drops_non_numeric_entries,
         test_save_config_serializes_the_training_config,
+        test_save_config_archives_a_nested_experiment_config,
+        test_two_pricing_models_no_longer_share_a_config_file,
+        test_config_without_a_problem_omits_the_derived_block,
         test_save_calibration_and_report,
         test_print_location_runs,
     ]:

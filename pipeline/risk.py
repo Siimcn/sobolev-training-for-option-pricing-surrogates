@@ -1,11 +1,8 @@
 from typing import Dict, Optional
 
-from kalibrierung.market_data import MarketData
-
-from marktsimulation.pricing_model import BlackScholesParams
-
 from risk_visualisierung.xva_analysis import run_xva_analysis
 
+from surrogate_modeling.pricing_problem import PricingProblem
 from surrogate_modeling.surrogate_model import SurrogateModel
 
 from pipeline.config import ExperimentConfig
@@ -13,25 +10,25 @@ from pipeline.config import ExperimentConfig
 
 def run_risk_analysis(
     surrogate: SurrogateModel,
-    market_data: MarketData,
-    fitted_params: BlackScholesParams,
+    problem: PricingProblem,
     config: ExperimentConfig,
 ) -> Optional[Dict[str, float]]:
     """
-    Returns None when XVA cannot be run for the configured pricing model.
+    Returns None when the stage is switched off or the problem cannot
+    simulate the future states an exposure profile needs.
 
-    The exposure simulation evolves a single spot and its reference prices
-    with the closed-form Black-Scholes formula. A basket surrogate expects
-    [S_1, ..., S_n, K, T] instead, and a basket has no closed form - and
-    since both feature vectors are the same length for n = 3, feeding one
-    to the other would silently produce nonsense rather than fail.
+    Which pricing model is running is not asked here: the problem either
+    produces feature paths or it does not.
     """
 
-    if config.is_basket:
-        print(
-            "\nSkipping XVA: the exposure simulation and its analytic "
-            "reference are single-asset only."
-        )
+    if not config.risk.enabled:
         return None
 
-    return run_xva_analysis(surrogate, market_data, fitted_params)
+    return run_xva_analysis(
+        surrogate,
+        problem,
+        horizon=config.risk.horizon,
+        num_paths=config.risk.num_paths,
+        num_steps=config.risk.num_steps,
+        seed=config.risk.seed,
+    )

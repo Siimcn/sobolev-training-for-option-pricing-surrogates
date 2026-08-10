@@ -1,12 +1,16 @@
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from typing import Optional, Tuple
 
-from surrogate_modeling.data_generation import (
+# imported for the registration side effect: the built-in problems must be
+# in the registry before `pricing_model` can be validated against it
+import surrogate_modeling.problems  # noqa: F401
+
+from surrogate_modeling.problems import (
     BASKET_BLACK_SCHOLES,
     BLACK_SCHOLES,
-    PRICING_MODELS,
 )
+from surrogate_modeling.pricing_problem import available_problems
 from surrogate_modeling.training_config import PRICE_GRADIENT, TrainingConfig
 
 __all__ = [
@@ -78,28 +82,31 @@ class BasketConfig:
     # custom weights.
     symmetrize: bool = True
 
-    @property
-    def resolved_weights(self) -> Tuple[float, ...]:
-        if self.weights is not None:
-            return self.weights
-
-        return tuple([1.0 / self.n_assets] * self.n_assets)
-
 
 @dataclass(frozen=True)
 class DataConfig:
 
-    # what the surrogate learns to price; see PRICING_MODELS
+    # what the surrogate learns to price; see available_problems()
     pricing_model: str = BASKET_BLACK_SCHOLES
 
-    n_samples: int = 1200
+    n_samples: int = 600
     sobolev_order: int = 2
     train_fraction: float = 0.8
+
+    seed: int = 0
 
     # Floor on the sampled maturity. The shortest market expiries produce
     # curvature labels thousands of times larger than the rest of the
     # domain, which the pooled HVP error then reports almost exclusively.
     min_maturity: float = 0.05
+
+    # Shape of the sampling domain. Spots span a `domain_n_sigma` lognormal
+    # move over `domain_horizon` years, matching the exposure simulation;
+    # `r_spread` is the band around the calibrated rate, and is only read by
+    # models that carry the rate as a feature.
+    r_spread: float = 0.02
+    domain_n_sigma: float = 3.0
+    domain_horizon: float = 1.0
 
     preview_sample_indices: Tuple[int, ...] = (0, 50, 100)
     preview_num_paths: int = 100
@@ -116,6 +123,28 @@ class NetworkConfig:
     out_size: int = 1
     width_size: int = 128
     depth: int = 5
+
+
+@dataclass(frozen=True)
+class ValidationConfig:
+    """The independent benchmark run against the trained surrogate."""
+
+    enabled: bool = True
+    n_points: int = 9
+
+    # unrelated to the label seed, so the benchmark is genuinely independent
+    seed: int = 12345
+
+
+@dataclass(frozen=True)
+class RiskConfig:
+
+    enabled: bool = True
+
+    horizon: float = 1.0
+    num_paths: int = 100
+    num_steps: int = 252
+    seed: int = 0
 
 
 def _training_config() -> TrainingConfig:
@@ -152,12 +181,19 @@ def _training_config() -> TrainingConfig:
 
 @dataclass(frozen=True)
 class ExperimentConfig:
-    """`training` stays a plain TrainingConfig because config.json archives it."""
+    """
+    `training` stays a plain TrainingConfig because config.json archives it.
+
+    Nothing here answers "which model is this?" - the stages take a
+    PricingProblem built from `data.pricing_model` and ask it instead.
+    """
 
     market: MarketConfig = field(default_factory=MarketConfig)
     data: DataConfig = field(default_factory=DataConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     basket: BasketConfig = field(default_factory=BasketConfig)
+    validation: ValidationConfig = field(default_factory=ValidationConfig)
+    risk: RiskConfig = field(default_factory=RiskConfig)
     training: TrainingConfig = field(default_factory=_training_config)
 
     prints: bool = True
@@ -165,10 +201,10 @@ class ExperimentConfig:
     surface_grid_points: int = 50
 
     def __post_init__(self):
-        if self.data.pricing_model not in PRICING_MODELS:
+        if self.data.pricing_model not in available_problems():
             raise ValueError(
                 f"Unknown pricing_model '{self.data.pricing_model}'. "
-                f"Expected one of: {', '.join(PRICING_MODELS)}."
+                f"Expected one of: {', '.join(available_problems())}."
             )
 
         weights = self.basket.weights
@@ -179,14 +215,17 @@ class ExperimentConfig:
                 f"n_assets is {self.basket.n_assets}."
             )
 
-    @property
-    def is_basket(self) -> bool:
-        return self.data.pricing_model == BASKET_BLACK_SCHOLES
+    def to_dict(self, problem=None) -> dict:
+        """
+        Everything a run needs to be reproducible, for config.json.
 
-    @property
-    def feature_names(self) -> Tuple[str, ...]:
-        if self.is_basket:
-            spots = tuple(f"S{i + 1}" for i in range(self.basket.n_assets))
-            return spots + ("K", "T")
+        `problem` contributes the feature layout and the sampled domain,
+        which are derived from the config rather than stated in it.
+        """
 
-        return ("S", "K", "T", "sigma", "r")
+        data = asdict(self)
+
+        if problem is not None:
+            data["derived"] = problem.describe()
+
+        return data

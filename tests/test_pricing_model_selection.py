@@ -23,8 +23,8 @@ from pipeline.config import (
     DataConfig,
     ExperimentConfig,
 )
-from surrogate_modeling.data_generation import PRICING_MODELS
 from surrogate_modeling.data_generation import create_sobolev_dataset
+from surrogate_modeling.pricing_problem import available_problems, build_problem
 
 
 SPOT, SIGMA, R = 100.0, 0.2, 0.05
@@ -47,14 +47,29 @@ def _params():
     return BlackScholesParams(r=R, sigma=SIGMA)
 
 
-def _dataset(pricing_model, basket=None, n_samples=3, sobolev_order=2):
+def _config(pricing_model, basket=None, min_maturity=None):
+    return ExperimentConfig(
+        data=DataConfig(pricing_model=pricing_model, min_maturity=min_maturity),
+        basket=basket or BasketConfig(n_assets=3, num_paths=4_000, num_steps=20),
+    )
+
+
+def _problem(pricing_model, basket=None, min_maturity=None):
+    config = _config(pricing_model, basket, min_maturity)
+
+    return build_problem(
+        pricing_model,
+        config=config,
+        market_data=_market_data(),
+        fitted_params=_params(),
+    )
+
+
+def _dataset(pricing_model, basket=None, n_samples=3, sobolev_order=2, min_maturity=None):
     return create_sobolev_dataset(
-        _market_data(),
-        _params(),
+        _problem(pricing_model, basket, min_maturity),
         sobolev_order,
         n_samples=n_samples,
-        pricing_model=pricing_model,
-        basket=basket,
     )
 
 
@@ -62,41 +77,56 @@ def _dataset(pricing_model, basket=None, n_samples=3, sobolev_order=2):
 
 def test_configured_default_is_a_known_model():
     # which model is the default is a config choice, not a contract
-    assert ExperimentConfig().data.pricing_model in PRICING_MODELS
+    assert ExperimentConfig().data.pricing_model in available_problems()
 
 
-def test_black_scholes_selection():
-    config = ExperimentConfig(data=DataConfig(pricing_model=BLACK_SCHOLES))
-
-    assert not config.is_basket
-    assert config.feature_names == ("S", "K", "T", "sigma", "r")
+def test_both_built_in_models_are_registered():
+    assert BLACK_SCHOLES in available_problems()
+    assert BASKET_BLACK_SCHOLES in available_problems()
 
 
-def test_weights_default_to_equal_shares():
-    assert BasketConfig(n_assets=4).resolved_weights == (0.25, 0.25, 0.25, 0.25)
-    assert BasketConfig(n_assets=2, weights=(0.3, 0.7)).resolved_weights == (0.3, 0.7)
+def test_black_scholes_feature_layout():
+    assert _problem(BLACK_SCHOLES).feature_names == ("S", "K", "T", "sigma", "r")
 
 
-def test_basket_selection_changes_the_feature_names():
-    config = ExperimentConfig(
-        data=DataConfig(pricing_model=BASKET_BLACK_SCHOLES),
-        basket=BasketConfig(n_assets=3),
-    )
+def test_basket_feature_layout_follows_the_asset_count():
+    assert _problem(BASKET_BLACK_SCHOLES).feature_names == ("S1", "S2", "S3", "K", "T")
 
-    assert config.is_basket
-    assert config.feature_names == ("S1", "S2", "S3", "K", "T")
-
-    wider = ExperimentConfig(
-        data=DataConfig(pricing_model=BASKET_BLACK_SCHOLES),
-        basket=BasketConfig(n_assets=5),
+    wider = _problem(
+        BASKET_BLACK_SCHOLES,
+        basket=BasketConfig(n_assets=5, num_paths=2_000, num_steps=10),
     )
 
     assert wider.feature_names == ("S1", "S2", "S3", "S4", "S5", "K", "T")
 
 
+def test_weights_default_to_equal_shares():
+    equal = _problem(
+        BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=4, num_paths=2_000)
+    )
+
+    assert bool(jnp.allclose(equal.weights, 0.25))
+
+    custom = _problem(
+        BASKET_BLACK_SCHOLES,
+        basket=BasketConfig(n_assets=2, weights=(0.3, 0.7), symmetrize=False),
+    )
+
+    assert bool(jnp.allclose(custom.weights, jnp.array([0.3, 0.7])))
+
+
 def test_unknown_pricing_model_is_rejected():
     try:
         ExperimentConfig(data=DataConfig(pricing_model="heston"))
+    except ValueError as e:
+        assert "heston" in str(e)
+    else:
+        assert False, "an unknown pricing model should raise"
+
+
+def test_unknown_pricing_model_rejected_by_the_registry():
+    try:
+        build_problem("heston", config=None, market_data=None, fitted_params=None)
     except ValueError as e:
         assert "heston" in str(e)
     else:
@@ -114,6 +144,85 @@ def test_weight_length_must_match_asset_count():
 
 def test_network_input_width_is_derived_by_default():
     assert ExperimentConfig().network.in_size is None
+
+
+# ------------------------------------------- feature layout is never assumed
+
+def test_baseline_point_lies_inside_the_training_domain():
+    # regression: the surface plots used a fixed [spot, K, T, sigma, r]
+    # anchor, so a basket run was evaluated at S3 = 0.50, K = 0.29 and a
+    # maturity below the floor - all far outside where it was trained
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model, min_maturity=0.3)
+
+        low, high = problem.feature_bounds()
+        baseline = problem.baseline_features()
+
+        assert baseline.shape == (problem.n_features,)
+        assert bool(jnp.all(baseline >= low - 1e-9)), model
+        assert bool(jnp.all(baseline <= high + 1e-9)), model
+
+
+def test_surface_specs_stay_inside_the_sampled_domain():
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model, min_maturity=0.3)
+
+        low, high = problem.feature_bounds()
+
+        specs = problem.surface_specs()
+
+        assert len(specs) == problem.n_features - 1
+
+        for spec in specs:
+            assert spec.x_index != spec.y_index
+
+            for index, (lo, hi) in [
+                (spec.x_index, spec.x_range),
+                (spec.y_index, spec.y_range),
+            ]:
+                assert lo >= float(low[index]) - 1e-9
+                assert hi <= float(high[index]) + 1e-9
+
+
+def test_feature_bounds_match_the_drawn_samples():
+    # the plot ranges are read off sample_features, so they cannot drift
+    # away from the domain the labels were actually drawn from
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model)
+
+        low, high = problem.feature_bounds()
+
+        u = jax.random.uniform(
+            jax.random.PRNGKey(3), shape=(64, problem.n_features)
+        )
+
+        X = problem.sample_features(u)
+
+        assert bool(jnp.all(X >= low - 1e-9)), model
+        assert bool(jnp.all(X <= high + 1e-9)), model
+
+
+def test_feature_labels_cover_every_feature():
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model)
+
+        assert len(problem.feature_labels) == problem.n_features
+        assert len(problem.feature_names) == problem.n_features
+
+
+def test_only_the_basket_declares_exchangeable_features():
+    assert _problem(BLACK_SCHOLES).exchangeable_features == ()
+    assert _problem(BASKET_BLACK_SCHOLES).exchangeable_features == (0, 1, 2)
+
+    # unequal weights break exchangeability, so nothing may be permuted
+    uneven = _problem(
+        BASKET_BLACK_SCHOLES,
+        basket=BasketConfig(
+            n_assets=3, weights=(0.5, 0.3, 0.2), symmetrize=False, num_paths=2_000
+        ),
+    )
+
+    assert uneven.exchangeable_features == ()
 
 
 # ------------------------------------------------------------ basket pricer
@@ -185,9 +294,7 @@ def test_black_scholes_dataset_shapes():
 
 
 def test_basket_dataset_shapes_follow_the_asset_count():
-    basket = BasketConfig(n_assets=3, num_paths=4_000, num_steps=20)
-
-    dataset = _dataset(BASKET_BLACK_SCHOLES, basket=basket, n_samples=3)
+    dataset = _dataset(BASKET_BLACK_SCHOLES, n_samples=3)
 
     assert dataset.X.shape == (3, 5)
     assert dataset.gradients.shape == (3, 5)
@@ -204,9 +311,7 @@ def test_basket_dataset_shapes_follow_the_asset_count():
 
 
 def test_basket_domain_respects_the_market_ranges():
-    basket = BasketConfig(n_assets=3, num_paths=4_000, num_steps=20)
-
-    dataset = _dataset(BASKET_BLACK_SCHOLES, basket=basket, n_samples=8)
+    dataset = _dataset(BASKET_BLACK_SCHOLES, n_samples=8)
 
     strikes, maturities = dataset.X[:, 3], dataset.X[:, 4]
 
@@ -224,30 +329,25 @@ def test_sobolev_order_one_skips_the_hvps():
     assert dataset.gradients is not None
 
 
+# ------------------------------------------------------------- diagnostics
+
 def test_preview_paths_read_the_right_feature_layout():
     # regression: the single-asset generator reads maturity from x[2] and
     # sigma from x[3], which for a basket are S_3 and K - that produced
     # paths of order 1e151 and negative prices
-    from pipeline.data import _path_generator
-
-    fitted = _params()
-
-    for config, x, horizon in [
+    for model, x, horizon in [
         (
-            ExperimentConfig(data=DataConfig(pricing_model=BLACK_SCHOLES)),
+            BLACK_SCHOLES,
             jnp.array([312.34, 300.0, 0.83, 0.2883, 0.0414]),
             0.83,
         ),
         (
-            ExperimentConfig(
-                data=DataConfig(pricing_model=BASKET_BLACK_SCHOLES),
-                basket=BasketConfig(n_assets=3, num_steps=20),
-            ),
+            BASKET_BLACK_SCHOLES,
             jnp.array([180.73, 695.27, 579.35, 362.39, 0.83]),
             0.83,
         ),
     ]:
-        time_grid, paths = _path_generator(fitted, config)(x)
+        time_grid, paths = _problem(model).underlying_paths(x, num_paths=8)
 
         assert abs(float(time_grid[-1]) - horizon) < 1e-9
         assert bool(jnp.all(jnp.isfinite(paths)))
@@ -256,28 +356,97 @@ def test_preview_paths_read_the_right_feature_layout():
 
 
 def test_basket_preview_paths_start_at_the_weighted_basket():
-    from pipeline.data import _path_generator
-
-    config = ExperimentConfig(
-        data=DataConfig(pricing_model=BASKET_BLACK_SCHOLES),
-        basket=BasketConfig(n_assets=3, num_steps=20),
-    )
-
     x = jnp.array([180.73, 695.27, 579.35, 362.39, 0.83])
 
-    _, paths = _path_generator(_params(), config)(x)
+    _, paths = _problem(BASKET_BLACK_SCHOLES).underlying_paths(x, num_paths=8)
 
     assert abs(float(paths[0, 0]) - float(jnp.mean(x[:3]))) < 1e-9
 
 
-def test_unknown_pricing_model_rejected_by_the_generator():
-    try:
-        _dataset("heston", n_samples=1)
-    except ValueError as e:
-        assert "heston" in str(e)
-    else:
-        assert False, "an unknown pricing model should raise"
+def test_exposure_paths_carry_the_problems_own_feature_layout():
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model)
 
+        time_grid, features = problem.exposure_paths(
+            strike=110.0, horizon=1.0, num_paths=6, num_steps=8
+        )
+
+        assert features.shape == (6, 9, problem.n_features)
+        assert time_grid.shape == (9,)
+        assert bool(jnp.all(jnp.isfinite(features)))
+
+        names = problem.feature_names
+
+        strike_column = features[:, :, names.index("K")]
+        maturity_column = features[:, :, names.index("T")]
+
+        assert bool(jnp.all(strike_column == 110.0)), model
+
+        # time to maturity runs down to zero as the exposure date advances
+        assert abs(float(maturity_column[0, 0]) - 1.0) < 1e-9
+        assert float(maturity_column[0, -1]) < 1e-6
+
+        # the underlying is simulated, so it is not constant
+        assert float(jnp.std(features[:, -1, 0])) > 0.0
+
+
+def test_only_black_scholes_offers_a_closed_form():
+    bs = _problem(BLACK_SCHOLES)
+    basket = _problem(BASKET_BLACK_SCHOLES)
+
+    x_bs = jnp.array([SPOT, 100.0, 0.5, SIGMA, R])
+
+    analytic = bs.analytic_price(x_bs)
+
+    assert analytic is not None
+    assert abs(
+        float(analytic) - float(black_scholes_price_single(SPOT, 100.0, 0.5, SIGMA, R))
+    ) < 1e-10
+
+    assert basket.analytic_price(basket.baseline_features()) is None
+
+
+def test_arbitrage_bounds_bracket_the_true_price():
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model)
+
+        x = problem.baseline_features()
+
+        lower, upper = problem.arbitrage_bounds(x)
+
+        price = float(problem.reference_price(x, jax.random.PRNGKey(7)))
+
+        assert lower - 1e-6 <= price <= upper + 1e-6, model
+
+
+def test_reference_price_uses_the_key_it_is_given():
+    problem = _problem(BASKET_BLACK_SCHOLES)
+
+    x = problem.baseline_features()
+
+    a = float(problem.reference_price(x, jax.random.PRNGKey(1)))
+    b = float(problem.reference_price(x, jax.random.PRNGKey(2)))
+
+    # different random numbers, so a different estimate - otherwise the
+    # "independent" benchmark would just be the training labels again
+    assert a != b
+    assert abs(a - b) / a < 0.1
+
+
+def test_reference_points_are_in_domain():
+    for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
+        problem = _problem(model, min_maturity=0.3)
+
+        low, high = problem.feature_bounds()
+
+        points = problem.reference_points(n_points=12)
+
+        assert points.shape == (12, problem.n_features)
+        assert bool(jnp.all(points >= low - 1e-9)), model
+        assert bool(jnp.all(points <= high + 1e-9)), model
+
+
+# --------------------------------------------------------- symmetrization
 
 def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
     w = jnp.full(n, 1.0 / n) if weights is None else jnp.asarray(weights)
@@ -352,29 +521,29 @@ def test_symmetrize_rejects_a_non_exchangeable_basket():
         assert False, "unequal weights with symmetrize should raise"
 
 
+# -------------------------------------------------------------- maturities
+
 def test_min_maturity_floors_the_sampled_maturities():
-    basket = BasketConfig(n_assets=3, num_paths=2_000, num_steps=10)
+    # asserted on the domain rather than on a draw: with few samples the
+    # unfloored minimum may land above the floor by chance
+    floored = _problem(BASKET_BLACK_SCHOLES, min_maturity=0.4)
+    unfloored = _problem(BASKET_BLACK_SCHOLES)
 
-    floored = create_sobolev_dataset(
-        _market_data(), _params(), 1, n_samples=16,
-        min_maturity=0.4, pricing_model=BASKET_BLACK_SCHOLES, basket=basket,
+    t = floored.feature_names.index("T")
+
+    assert abs(float(floored.feature_bounds()[0][t]) - 0.4) < 1e-12
+    assert abs(float(unfloored.feature_bounds()[0][t]) - 0.25) < 1e-12
+
+    labels = _dataset(
+        BASKET_BLACK_SCHOLES, n_samples=16, sobolev_order=1, min_maturity=0.4
     )
 
-    assert bool(jnp.all(floored.X[:, 4] >= 0.4))
-
-    unfloored = create_sobolev_dataset(
-        _market_data(), _params(), 1, n_samples=16,
-        pricing_model=BASKET_BLACK_SCHOLES, basket=basket,
-    )
-
-    assert float(jnp.min(unfloored.X[:, 4])) < 0.4
+    assert bool(jnp.all(labels.X[:, t] >= 0.4))
 
 
 def test_min_maturity_above_the_longest_expiry_raises():
     try:
-        create_sobolev_dataset(
-            _market_data(), _params(), 1, n_samples=2, min_maturity=5.0,
-        )
+        _dataset(BLACK_SCHOLES, n_samples=2, sobolev_order=1, min_maturity=5.0)
     except ValueError as e:
         assert "min_maturity" in str(e)
     else:
@@ -384,12 +553,19 @@ def test_min_maturity_above_the_longest_expiry_raises():
 if __name__ == "__main__":
     for check in [
         test_configured_default_is_a_known_model,
-        test_black_scholes_selection,
+        test_both_built_in_models_are_registered,
+        test_black_scholes_feature_layout,
+        test_basket_feature_layout_follows_the_asset_count,
         test_weights_default_to_equal_shares,
-        test_basket_selection_changes_the_feature_names,
         test_unknown_pricing_model_is_rejected,
+        test_unknown_pricing_model_rejected_by_the_registry,
         test_weight_length_must_match_asset_count,
         test_network_input_width_is_derived_by_default,
+        test_baseline_point_lies_inside_the_training_domain,
+        test_surface_specs_stay_inside_the_sampled_domain,
+        test_feature_bounds_match_the_drawn_samples,
+        test_feature_labels_cover_every_feature,
+        test_only_the_basket_declares_exchangeable_features,
         test_single_asset_basket_matches_the_analytic_call,
         test_basket_price_is_differentiable_twice,
         test_uniform_correlation_matrix,
@@ -399,7 +575,11 @@ if __name__ == "__main__":
         test_sobolev_order_one_skips_the_hvps,
         test_preview_paths_read_the_right_feature_layout,
         test_basket_preview_paths_start_at_the_weighted_basket,
-        test_unknown_pricing_model_rejected_by_the_generator,
+        test_exposure_paths_carry_the_problems_own_feature_layout,
+        test_only_black_scholes_offers_a_closed_form,
+        test_arbitrage_bounds_bracket_the_true_price,
+        test_reference_price_uses_the_key_it_is_given,
+        test_reference_points_are_in_domain,
         test_raw_estimator_is_not_permutation_invariant,
         test_symmetrize_makes_the_price_permutation_invariant,
         test_symmetrized_gradient_permutes_with_the_input,

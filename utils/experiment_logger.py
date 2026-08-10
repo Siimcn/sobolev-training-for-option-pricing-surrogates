@@ -1,7 +1,38 @@
 import os
 import json
 import sys
+from dataclasses import fields, is_dataclass
 from datetime import datetime
+
+
+def _json_safe(value):
+    """
+    Coerce a possibly nested config into JSON types.
+
+    Recurses through dataclasses so a config made of sub-configs is
+    archived in full rather than as the repr of its parts.
+    """
+
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _json_safe(getattr(value, f.name)) for f in fields(value)}
+
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+
+    # JAX and numpy scalars
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            return str(value)
+
+    return str(value)
 
 
 class LoggerWriter:
@@ -158,20 +189,12 @@ class ExperimentLogger:
         filename: str = "config.json",
     ):
 
-        config_data = {}
-        for k, v in vars(config).items():
-            try:
-                # JAX arrays are not JSON-serializable
-                config_data[k] = v.item() if hasattr(v, "item") else v
-            except Exception:
-                config_data[k] = str(v)
-
         with open(
             self.path(filename),
             "w",
         ) as f:
             json.dump(
-                config_data,
+                _json_safe(config),
                 f,
                 indent=4,
             )
