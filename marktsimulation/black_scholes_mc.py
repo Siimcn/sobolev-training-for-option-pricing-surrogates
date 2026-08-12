@@ -25,34 +25,22 @@ from marktsimulation.sobolev_labels import (
 )
 
 
-# number of MC paths per label (price, gradient and HVP all differentiate
-# through the same simulation); 50k needed for a stable HVP estimate
 MC_NUM_PATHS = 50_000
 MC_NUM_STEPS = 50
 
 
 def _payoff_smoothing_width(spot, maturity, sigma):
     """
-    Width of the payoff-smoothing kernel, scaled to the terminal
-    price's dispersion: a fixed dollar width is too narrow to catch
-    enough paths for a stable HVP estimate once S_T's spread grows.
+    Width of the payoff-smoothing kernel, scaled to the terminal price's
+    dispersion: a fixed dollar width is too narrow to catch enough paths for a
+    stable HVP estimate once S_T's spread grows.
     """
     dispersion = spot * sigma * jnp.sqrt(jnp.maximum(maturity, 1e-6))
     return jnp.maximum(0.05 * dispersion, 1e-3)
 
 
 def simulate_terminal(spot, sigma, r, maturity, num_paths, key, antithetic=True):
-    """
-    Exact terminal draws of a geometric Brownian motion.
-
-    S(T) = S(0) exp((r - sigma^2/2) T + sigma sqrt(T) Z) is the law of the
-    process, not an approximation of it, so a payoff reading only S(T)
-    needs one draw per path and carries no discretisation error.
-
-    `antithetic` pairs every Z with -Z: same law, so the estimator stays
-    unbiased, but the two payoffs are negatively correlated and most of
-    the level variance cancels. Adapted from diff-ml's antithetic sampling.
-    """
+    """Exact terminal draws of a geometric Brownian motion."""
 
     z = jax.random.normal(key, (num_paths,))
 
@@ -75,16 +63,7 @@ def bs_mc_price(
     num_steps: int = MC_NUM_STEPS,
     antithetic: bool = True,
 ):
-    """
-    x = [S, K, T, sigma, r]
-
-    `key` is required, not defaulted. A shared key across a dataset makes
-    every label carry one realisation of the Monte Carlo error, which then
-    never averages out; see `create_sobolev_labels`.
-
-    The scheme follows the payoff: terminal-only payoffs use the exact
-    one-step law, path-dependent ones the stepping scheme.
-    """
+    """x = [S, K, T, sigma, r]"""
 
     spot = x[0]
     strike = x[1]
@@ -145,30 +124,14 @@ def make_mc_calibration_pricer(
     num_steps: int = MC_NUM_STEPS,
 ):
     """
-    Build a `pricing_fn` for the Calibrator that prices the whole
-    instrument set by Monte Carlo instead of the analytic formula.
-
-    Every European option sharing a maturity can be priced off the same
-    terminal sample, so one residual evaluation costs one path bundle per
-    *distinct maturity*, not one per instrument. The grouping is read off
-    the market data here, before the solve starts, because it has to be a
-    static structure inside the traced residual.
-
-    The key is fixed and independent of the parameters (common random
-    numbers). Re-drawing paths at every Levenberg-Marquardt step would
-    make the residual discontinuous in (r, sigma) and its Jacobian
-    meaningless.
-
-    Note that the resulting prices carry the same Euler-discretization
-    and payoff-smoothing bias as the training labels, so the calibrated
-    parameters do too.
+    Build a `pricing_fn` for the Calibrator that prices the whole instrument
+    set by Monte Carlo instead of the analytic formula.
     """
 
     maturities = np.asarray(maturities)
 
     num_instruments = len(maturities)
 
-    # (maturity, indices of the instruments that share it)
     groups = [
         (
             float(T),
@@ -219,8 +182,6 @@ def make_mc_calibration_pricer(
 
             terminal = paths[:, -1, 0]
 
-            # same construction as EuropeanPayoff, but vectorized over
-            # every strike at this maturity instead of one at a time
             omega = jnp.where(
                 is_call[indices],
                 1.0,

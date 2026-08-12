@@ -51,16 +51,11 @@ class SobolevTrainer:
         self.config = config
         self.checkpoint_path = checkpoint_path
 
-        # per-dimension std of each chain-rule-rescaled Greek, computed once
-        # from the training set - keeps one dimension from dominating the
-        # pooled gradient/HVP MSE just because its raw x_std is larger
         self.grad_scale = grad_scale
         self.hvp_scale = hvp_scale
 
         self.config.validate()
 
-        # one step per batch, so the schedule needs the batch count; it is
-        # only known once fit() sees the training set
         self._build_optimizer(steps_per_epoch=1)
 
     def _build_optimizer(self, steps_per_epoch: int) -> None:
@@ -76,8 +71,6 @@ class SobolevTrainer:
             optax.adam(self._learning_rate(steps_per_epoch)),
         )
 
-        # is_inexact_array, not is_array: filter_value_and_grad differentiates
-        # only inexact leaves, so a bool mask would desync opt_state and grads
         self.opt_state = self.optimizer.init(
             eqx.filter(
                 self.model,
@@ -103,9 +96,6 @@ class SobolevTrainer:
 
         total = max(self.config.epochs * steps_per_epoch, 2)
 
-        # warmup has to leave room for the decay: optax measures the cosine
-        # over (decay_steps - warmup_steps), which must stay positive even
-        # for a very short run
         warmup = int(
             min(self.config.warmup_epochs * steps_per_epoch, max(total // 5, 1))
         )
@@ -127,14 +117,7 @@ class SobolevTrainer:
         hvps: Optional[jnp.ndarray] = None,
         V: Optional[jnp.ndarray] = None,
     ):
-        """
-        Sobolev loss for one batch.
-
-        Gradients/HVPs are rescaled by x_std/y_std (chain rule for the
-        model's normalization) so the three residuals share a common
-        scale, then optionally divided by `grad_scale`/`hvp_scale` so no
-        single input dimension dominates the pooled MSE.
-        """
+        """Sobolev loss for one batch."""
 
         prices_pred = model.predict_prices(X)
 
@@ -143,13 +126,8 @@ class SobolevTrainer:
         hvps_pred_n = None
         hvps_true_n = None
 
-        # d(y_norm)/d(x_norm) = (dy/dx) * (x_std / y_std).
-        # stop_gradient again here (a separate read of x_std/y_std),
-        # otherwise Adam would slowly update these fixed stats
         scale = jax.lax.stop_gradient(model.x_std / model.y_std)
 
-        # price loss floor/ceiling, tied to the global y_std rather than this
-        # batch's own std (a 32-sample batch would be too noisy)
         y_std_sg = jax.lax.stop_gradient(model.y_std)
         price_floor = jnp.maximum(0.05, 0.3 * y_std_sg)
         price_ceiling = jnp.maximum(price_floor * 2.0, 2.0 * y_std_sg)
@@ -189,15 +167,7 @@ class SobolevTrainer:
         )
 
     def _selection_loss(self, valid_loss, valid_metrics) -> float:
-        """
-        The quantity early stopping and checkpointing compare.
-
-        TOTAL is the Sobolev objective itself. The subset criteria drop
-        terms and renormalize the remaining weights, which keeps their
-        balance but means the dropped term is no longer being optimised
-        for at selection time - measured to leave the validation HVP loss
-        2.6x above its achievable value under PRICE_GRADIENT.
-        """
+        """The quantity early stopping and checkpointing compare."""
 
         metric = self.config.selection_metric
 
@@ -292,8 +262,6 @@ class SobolevTrainer:
             self.config.seed
         )
 
-        # the schedule is defined in optimizer steps, which is batches, so
-        # it can only be built once the training set size is known
         self._build_optimizer(
             steps_per_epoch=max(
                 1,
@@ -378,7 +346,6 @@ class SobolevTrainer:
                         metrics["price_loss"]
                     )
 
-                # raw dollar MSE, for interpretable RMSE in plots/console
                 epoch_price_mse_raw += float(
                     metrics.get("price_mse_raw", metrics["price_loss"])
                 )
@@ -424,11 +391,9 @@ class SobolevTrainer:
                 1,
             )
 
-
             epoch_price_rmse = (
                 epoch_price_mse_raw
             ) ** 0.5
-
 
             history["train_loss"].append(
                 epoch_loss
@@ -465,7 +430,6 @@ class SobolevTrainer:
                     valid_dataset.V,
                 )
 
-
                 valid_price_rmse = (
                     float(
                         valid_metrics.get(
@@ -474,7 +438,6 @@ class SobolevTrainer:
                         )
                     )
                 ) ** 0.5
-
 
                 history["valid_price_rmse"].append(
                     valid_price_rmse
@@ -502,8 +465,6 @@ class SobolevTrainer:
                     valid_loss, valid_metrics
                 )
 
-                # best-checkpoint tracking always runs, even if early_stopping
-                # is off, since `model = best_model` runs unconditionally below
                 improvement = (
                     best_loss - selection_loss
                 )

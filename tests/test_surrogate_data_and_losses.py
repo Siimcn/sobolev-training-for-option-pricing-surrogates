@@ -148,7 +148,6 @@ def test_price_loss_divides_by_the_clipped_scale():
 
 
 def test_price_loss_bounds_the_weight_of_cheap_and_expensive_options():
-    # same absolute residual on a 0.01 option and a 1000 option
     cheap = price_loss(jnp.array([0.02]), jnp.array([0.01]),
                        scale_floor=0.05, scale_ceiling=2.0)
     rich = price_loss(jnp.array([1000.01]), jnp.array([1000.0]),

@@ -136,7 +136,6 @@ def test_pricing_error_vanishes_at_true_parameters():
 
 
 def test_calibrator_applies_parameter_transform():
-    # log-parametrization keeps sigma positive during the solve
     market = _synthetic_market()
 
     calibrator = Calibrator(

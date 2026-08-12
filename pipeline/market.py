@@ -11,14 +11,7 @@ from pipeline.config import ExperimentConfig
 def load_and_calibrate(
     config: ExperimentConfig,
 ) -> Optional[Tuple[MarketData, CalibrationResult]]:
-    """
-    Load the option chain and fit the configured model to it.
-
-    Which parameters are fitted, with which pricer, and what has to be
-    assumed instead is the problem's business - this stage only decides
-    that calibration happens and reports failure. Returns None if either
-    step fails; the caller must stop.
-    """
+    """Load the option chain and fit the configured model to it."""
 
     try:
         market_data = _load_market_data(config)
@@ -35,15 +28,7 @@ def load_and_calibrate(
             market_data=market_data,
         )
 
-        print(
-            f"Calibrated sigma: "
-            f"{calibration.params.sigma:.4f}"
-        )
-
-        print(
-            f"Calibrated rate : "
-            f"{calibration.params.r:.4f}"
-        )
+        _print_fitted(calibration)
 
     except Exception as e:
         print("\nMarket data unavailable:")
@@ -51,6 +36,32 @@ def load_and_calibrate(
         return None
 
     return market_data, calibration
+
+
+def _print_fitted(calibration: CalibrationResult) -> None:
+    """Report whatever the model fitted, without knowing its parameter names."""
+
+    params = calibration.params
+
+    fields = (
+        params._asdict()
+        if hasattr(params, "_asdict")
+        else {"params": params}
+    )
+
+    print("\nFitted parameters:")
+
+    for name, value in fields.items():
+        try:
+            print(f"  {name:<8s}: {float(value):.6f}")
+        except (TypeError, ValueError):
+            print(f"  {name:<8s}: {value}")
+
+    if calibration.assumptions:
+        print("\nAssumed, not fitted:")
+
+        for name, value in calibration.assumptions.items():
+            print(f"  {name:<24s}: {value}")
 
 
 def _load_market_data(config: ExperimentConfig) -> MarketData:

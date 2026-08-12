@@ -5,13 +5,7 @@ from typing import Callable, Dict
 
 
 class RiskEngine:
-    """
-    Exposure and XVA from a valuation along simulated future states.
-
-    Nothing here knows what is being priced: it is handed a block of
-    feature paths and something that values them, so it works for any
-    PricingProblem that can produce those paths.
-    """
+    """Exposure and XVA from a valuation along simulated future states."""
 
     def __init__(
         self,
@@ -45,8 +39,8 @@ class RiskEngine:
     ) -> Dict:
         """
         `value_fn` prices one feature row. Passing it in is what makes the
-        reference model-agnostic - it used to be the closed-form
-        Black-Scholes price, which silently mispriced anything else.
+        reference model-agnostic - it used to be the closed-form Black-Scholes
+        price, which silently mispriced anything else.
         """
 
         evaluate = jax.vmap(jax.vmap(value_fn))
@@ -98,7 +92,6 @@ class RiskEngine:
             - survival[1:]
         )
 
-        # survival differences are one shorter than time_grid
         default_probs = jnp.concatenate(
             [
                 default_probs,

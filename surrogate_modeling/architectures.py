@@ -5,20 +5,11 @@ import equinox as eqx
 from typing import Callable, Dict, Tuple
 
 
-# A builder maps (key, in_size, out_size, ...) to a ready-to-use JAX model.
-# The registry is a convenience only: SurrogateModel takes any callable model.
-
 NetworkBuilder = Callable[..., Callable]
 
 
 class ResidualMLP(eqx.Module):
-    """
-    MLP mit Skip-Connections.
-
-    Sobolev training differentiates the whole stack one or two more times,
-    which conditions a deep plain MLP badly. `depth` counts hidden layers
-    (as in equinox.nn.MLP), grouped into residual blocks of two.
-    """
+    """MLP mit Skip-Connections."""
 
     input_layer: eqx.nn.Linear
     blocks: Tuple[Tuple[eqx.nn.Linear, eqx.nn.Linear], ...]
@@ -88,9 +79,6 @@ class ResidualMLP(eqx.Module):
         )
 
 
-# order-2 Sobolev differentiates twice, so relu-like activations give
-# identically zero HVPs - the defaults below are smooth on purpose
-
 def build_mlp(
     key: jax.Array,
     in_size: int,
@@ -139,12 +127,7 @@ def register_architecture(
     builder: NetworkBuilder,
     overwrite: bool = False,
 ) -> None:
-    """
-    Registriert eine Netzarchitektur unter `name` (case-insensitive).
-
-    `builder` is called as builder(key=..., in_size=..., out_size=..., **kwargs)
-    and must return a callable JAX model.
-    """
+    """Registriert eine Netzarchitektur unter `name` (case-insensitive)."""
 
     if not callable(builder):
         raise TypeError(

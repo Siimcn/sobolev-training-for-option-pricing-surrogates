@@ -21,8 +21,10 @@ D = 3
 
 
 class MaskedMLP(eqx.Module):
-    """Carries a non-differentiable leaf next to its weights, as a pruned
-    network does. `dtype` selects bool (pruning mask) or int (index buffer)."""
+    """
+    Carries a non-differentiable leaf next to its weights, as a pruned network
+    does. `dtype` selects bool (pruning mask) or int (index buffer).
+    """
 
     mlp: eqx.nn.MLP
     mask: jnp.ndarray
@@ -131,8 +133,6 @@ def test_int_leaf_model_trains():
 
 
 def test_optimizer_state_matches_gradient_tree():
-    # the actual defect: opt_state was built from is_array (which accepts
-    # bool/int) while the gradient tree only ever holds inexact leaves
     surrogate = SurrogateModel(MaskedMLP(jnp.bool_, key=jax.random.PRNGKey(0)))
 
     n_all_arrays = _leaf_count(surrogate, eqx.is_array)
@@ -167,7 +167,6 @@ def test_single_train_step_on_bool_leaf_model():
 
     assert math.isfinite(float(loss))
 
-    # weights moved, the non-differentiable mask did not
     weight_before = surrogate.model.mlp.layers[0].weight
     weight_after = model.model.mlp.layers[0].weight
 

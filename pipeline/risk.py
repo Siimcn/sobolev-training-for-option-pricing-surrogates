@@ -14,11 +14,8 @@ def run_risk_analysis(
     config: ExperimentConfig,
 ) -> Optional[Dict[str, float]]:
     """
-    Returns None when the stage is switched off or the problem cannot
-    simulate the future states an exposure profile needs.
-
-    Which pricing model is running is not asked here: the problem either
-    produces feature paths or it does not.
+    Returns None when the stage is switched off or the problem cannot simulate
+    the future states an exposure profile needs.
     """
 
     if not config.risk.enabled:

@@ -100,7 +100,6 @@ def test_early_stopping_halts_when_validation_stops_improving():
 
     history = SobolevTrainer(_surrogate(train), config).fit(train, valid)
 
-    # epoch 0 always "improves" (best starts at inf), then patience runs out
     assert len(history["train_loss"]) == 3
 
 

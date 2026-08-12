@@ -10,11 +10,7 @@ from surrogate_modeling.architectures import (
 
 
 class NeuralNetwork(eqx.Module):
-    """
-    Generischer Adapter für beliebige JAX-Netze.
-
-    Optional: SurrogateModel accepts a bare JAX model just as well.
-    """
+    """Generischer Adapter für beliebige JAX-Netze."""
 
     model: Callable
     architecture: str = eqx.field(static=True)
@@ -69,13 +65,7 @@ class NeuralNetwork(eqx.Module):
 
 
 class FunctionalNetwork(eqx.Module):
-    """
-    Adapter für Netze mit getrennt gehaltenen Parametern (Flax, Haiku).
-
-    Holds the parameter PyTree as its own non-static, therefore
-    differentiable, leaves so the pipeline sees the usual model(x).
-    `apply_fn` is static and must be hashable.
-    """
+    """Adapter für Netze mit getrennt gehaltenen Parametern (Flax, Haiku)."""
 
     params: Any
     apply_fn: Callable = eqx.field(static=True)

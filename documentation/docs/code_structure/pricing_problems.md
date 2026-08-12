@@ -162,11 +162,61 @@ price:
 | Name | Features | Closed form | Exchangeable |
 |---|---|---|---|
 | `black_scholes` | `S, K, T, sigma, r` | yes | no |
-| `basket_black_scholes` | `S_1 … S_n, K, T` | no | the spots, when the basket is |
+| `basket_black_scholes` | `S_1 … S_n, K, T` | **no** | the spots, when the basket is |
+| `bachelier` | `S, K, T, sigma, r` | yes | no |
+| `basket_bachelier` | `S_1 … S_n, K, T` | **yes, exact** | the spots, when the basket is |
+| `heston` | `S, K, T, v0, kappa, theta, xi, rho` | yes, by Fourier inversion | no |
+| `basket_heston` | `S_1 … S_n, K, T` | no | the spots, when the basket is |
 
 A basket surrogate has per-asset deltas and gammas but no vega or rho: the
 basket structure is fixed at construction rather than carried in the feature
 vector.
+
+### Bachelier versus Black-Scholes
+
+The normal model replaces `dS = rS dt + sigma S dW` with a driftless normal
+forward, `dF = sigma dW` and `F_0 = S exp(rT)`. Three consequences matter
+for this repository.
+
+**`sigma` changes units.** A Black-Scholes volatility is a percentage; a
+normal volatility is a price per square root of time. At a spot of 312 a
+0.29 lognormal vol corresponds to roughly 90 in normal units. The sampling
+domain follows: the spot range is *additive* (`S ± n sigma sqrt(T)`), not
+multiplicative, and the initial calibration guess is scaled by the spot.
+
+**The basket becomes exact.** A weighted sum of jointly normal assets is
+normal, so `basket_bachelier` has a closed-form price, gradient and
+Hessian:
+
+```
+sigma_B = sqrt(w' diag(sigma) C diag(sigma) w)
+V       = exp(-rT) [ (F_B - K) Phi(d) + sigma_B sqrt(T) phi(d) ]
+dV/dS_i = w_i Phi(d)          d2V/dS_i dS_j = w_i w_j Gamma
+```
+
+The spot Hessian is therefore **rank one**. Under Black-Scholes the
+analogous sum of lognormals has no closed form and the repository falls
+back to a Monte Carlo reference. This makes `basket_bachelier` the better
+testbed: a surrogate can be measured against ground truth rather than
+against another estimator.
+
+**Euler is exact.** The coefficients are constant, so an Euler increment
+*is* the true increment. `num_steps` changes only the path resolution an
+Asian payoff sees, never the accuracy of a European one.
+
+The trade-off is that a normal underlying can go negative, which is
+unrealistic for equities but is exactly why the model is standard for
+rates and spreads.
+
+### The forward convention, and why it matters
+
+`bachelier` quotes from the spot and carries the drift in `F_0 = S exp(rT)`.
+Dropping that carry is not a harmless simplification: with `F_0 = S` the
+model under-prices, and the calibrator compensates by driving the fitted
+rate **negative** (measured at −0.026 against a Black-Scholes fit of
++0.041 on the same chain). Carrying the forward restores +0.038 and keeps
+the `r` feature interpretable. The convention is recorded under
+`assumptions` in every archived run.
 
 **The basket correlation is an assumption, not a fit.** The option chain is
 single-name, so no instrument in it constrains rho. `calibrate_basket`
@@ -175,13 +225,81 @@ but clearly separated from what was fitted. The one testable consequence —
 that a basket is worth no more than its rho = 1 limit — is checked by the
 validation stage.
 
+### Heston, and why the variance scheme was chosen by measurement
+
+    dS = r S dt + sqrt(v) S dW1,   dv = kappa (theta - v) dt + xi sqrt(v) dW2
+
+The variance can reach zero, and below the Feller condition
+`2 kappa theta / xi^2 < 1` it does so with probability one. Every
+discretisation therefore needs a positive part before `sqrt(v)`, and that
+choice is not cosmetic for Sobolev training: the labels differentiate
+through it twice.
+
+Four candidates were measured against the Fourier price, which is exact up
+to quadrature and itself differentiable:
+
+| Feller ratio | scheme | dV/dv0 error | d2V/dS2 error |
+|---|---|---|---|
+| 4.00 | truncation `max(v,0)` | 0.36 % | 1.25 % |
+| 4.00 | smooth | 0.36 % | 1.25 % |
+| 0.64 | truncation | 2.06 % | 0.50 % |
+| 0.64 | **smooth** | **0.55 %** | 0.41 % |
+| 0.16 | truncation | **169 206 %**, sign flipped | 0.82 % |
+| 0.16 | reflection `abs(v)` | **13 195 %** | 9.24 % |
+| 0.16 | **smooth** | **1.11 %** | **0.58 %** |
+| 0.16 | Andersen QE | **nan** | 52.6 % |
+
+Hard truncation returned `dV/dv0 = -92730` against a true `54.8`, and
+reflection `-7181`.
+
+**The mechanism is the unbounded derivative of the square root, not the
+kink in the positive part.** The pathwise derivative passes through
+`d sqrt(v)/dv = 1/(2 sqrt(v))`, which diverges as the variance approaches
+zero:
+
+| v | `max(v,0)` | `abs(v)` | smooth |
+|---|---|---|---|
+| 1e-3 | 15.81 | 15.81 | 14.96 |
+| 1e-6 | 500.0 | 500.0 | 17.70 |
+| 0 | 2.5e+149 | 5.0e+149 | 17.68 |
+
+`abs(v)` is smooth away from a single point and fails just as badly, which
+is what rules out smoothness alone as the explanation: it still *reaches*
+zero. QE fails for a third reason — its branch selection is not
+differentiable and its exponential branch sets `v = 0` outright.
+
+The repository therefore uses
+
+    v+ = 0.5 (v + sqrt(v^2 + w^2)),   w = 0.01 theta
+
+whose two relevant properties are separate. It is **bounded away from
+zero**, flooring the variance at `w/2` so the derivative cannot exceed
+`1 / (2 sqrt(w/2)) = 35.4` — this is what fixes the gradient. And it is
+**twice differentiable**, its second derivative a bump of height `1/(2w)`
+rather than a delta — this is what the Hessian-vector labels need. A
+floored `max(v, eps)` would give the first without the second.
+
+It costs almost nothing in price: bias `+0.032` against `+0.023` for
+truncation on the same case, both under half a percent.
+`tests/test_heston.py` asserts both properties so hard truncation cannot
+silently return.
+
+The choice is not a corner case: **51.7 % of the shipped Heston training
+domain violates the Feller condition** (ratio range 0.352 to 3.121, median
+0.984), so most samples sit in the regime where truncation fails.
+
+The basket variant has **no** closed form: a sum of Heston assets has no
+tractable characteristic function. Its correlation is the Kronecker product
+`[[1, rho], [rho, 1]] (x) C`, positive semi-definite by construction.
+
 ## What was adopted from diff-ml
 
-| Adopted | Why |
-|---|---|
-| Antithetic sampling (`Bachelier.antithetic_payoff`) | halves label variance at no cost, which directly improves every Sobolev target |
-| Verifying AD against a closed-form differential inside the sampler (`assert jnp.allclose(differentials_analytic, differentials_vjp)`) | became the shape and finite-difference tests; catches a broken derivative path immediately |
-| Drawing a fresh key per `sample()` call | independent confirmation that per-sample randomness is the intended idiom |
+| Adopted | Why | Problem it solves |
+|---|---|---|
+| Antithetic sampling (`Bachelier.antithetic_payoff`) | same law, negatively correlated pairs | halves label variance at no cost, improving every Sobolev target |
+| The Bachelier call formula and its Greeks (`Bachelier.Call.price/delta/gamma/vega`, eq. (3) of arXiv:2104.08686) | already correct and referenced | avoids re-deriving the normal-model analytics; extended here with discounting, puts and the basket |
+| Verifying AD against a closed-form differential inside the sampler (`assert jnp.allclose(differentials_analytic, differentials_vjp)`) | catches a broken derivative path immediately | became the finite-difference and shape tests across all four models |
+| Drawing a fresh key per `sample()` call | per-sample randomness is the intended JAX idiom | independent confirmation of the label-key fix |
 
 Not adopted: `Normalization`/`Denormalization`/`Normalized` (equivalent to
 `SurrogateModel`), `ad.hvp` (equivalent to ours), `sigmoidal_smoothing`

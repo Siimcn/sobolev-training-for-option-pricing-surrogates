@@ -50,8 +50,10 @@ S0, K, T, SIGMA, R = 100.0, 100.0, 1.0, 0.2, 0.05
 
 
 def _brownian(key, num_paths, num_steps, dt, dim=1):
-    """Mirrors TimeSteppingScheme.generate_paths so a run can be compared
-    against the exact solution driven by the same increments."""
+    """
+    Mirrors TimeSteppingScheme.generate_paths so a run can be compared against
+    the exact solution driven by the same increments.
+    """
     return jax.random.normal(key, (num_paths, num_steps, dim)) * jnp.sqrt(dt)
 
 
@@ -160,8 +162,6 @@ def test_schemes_keep_shape_and_initial_state():
 
 
 def test_milstein_is_more_accurate_than_euler_on_gbm():
-    # GBM is scored against its closed-form terminal value, driven by the
-    # very same Brownian increments
     params = BlackScholesParams(r=R, sigma=SIGMA)
     s0 = jnp.array([S0])
     key = jax.random.PRNGKey(0)
@@ -202,8 +202,6 @@ def test_discounted_spot_is_a_martingale():
 
 
 def test_correlation_matrix_is_applied_to_the_increments():
-    # Bachelier has constant diffusion, so the terminal state is affine in
-    # the Brownian path and the correlation carries through unchanged
     rho = 0.7
     model = BachelierModel(scheme=EulerMaruyama())
     params = BachelierParams(sigma=1.0)
@@ -257,8 +255,6 @@ def test_cubic_spline_is_exact_outside_the_smoothing_window():
 
 
 def test_smoothed_payoff_is_twice_differentiable():
-    # relu is why the MC labels need smoothing at all: its second derivative
-    # is zero everywhere, so HVP labels would collapse
     second = jax.grad(jax.grad(lambda z: sigmoid_smooth(z, 0.5)))(0.3)
 
     assert float(jnp.abs(second)) > 0.0
@@ -307,7 +303,6 @@ def test_value_fn_selects_the_underlying():
     model = BlackScholesModel(scheme=EulerMaruyama())
     params = BlackScholesParams(r=R, sigma=SIGMA)
 
-    # a value_fn of 2x must double the effective spot
     doubled = MonteCarloPricer(
         model, EuropeanCall(strike=2 * K, smooth_fn=relu),
         value_fn=lambda s: 2.0 * s[0],
@@ -345,8 +340,6 @@ def test_bs_mc_price_matches_analytic_and_is_reproducible():
 
 
 def test_exact_terminal_sampling_is_unbiased():
-    # averaging over independent keys must converge on the closed form; a
-    # single key only tells you about that one draw
     x = jnp.array([S0, K, T, SIGMA, R])
 
     prices = jnp.array(
@@ -355,8 +348,6 @@ def test_exact_terminal_sampling_is_unbiased():
 
     analytic = float(black_scholes_price_single(S0, K, T, SIGMA, R))
 
-    # the estimator itself is unbiased; what remains is the payoff
-    # smoothing, which is a small, strictly negative offset by construction
     relative = float(jnp.mean(prices)) / analytic - 1.0
 
     assert -0.01 < relative <= 0.001, f"unexpected sampling bias {relative:+.4%}"
@@ -397,7 +388,6 @@ def test_terminal_draws_are_lognormal_with_the_right_moments():
     assert len(blocks) == 1
     assert bool(jnp.all(terminal > 0.0))
 
-    # E[S_T] = S_0 e^{rT} exactly, not approximately: the draw is the law
     forward = S0 * math.exp(R * T)
 
     assert abs(float(jnp.mean(terminal)) / forward - 1.0) < 0.01

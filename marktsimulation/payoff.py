@@ -169,23 +169,9 @@ def AsianPut(
     )
 
 
-# --------------------------------------------------------------- registry
-
-
 @dataclass(frozen=True)
 class PayoffSpec:
-    """
-    Everything the pricing and validation layers need to know about a payoff.
-
-    `path_dependent` decides whether the terminal state is enough: a
-    European payoff reads only S(T) and can therefore be priced by an
-    exact one-step draw, an Asian payoff needs the whole trajectory and
-    forces a stepping scheme.
-
-    `bounds` returns model-free (lower, upper) price bounds, or None when
-    no simple bound is known. The validation stage checks whatever is
-    offered and skips the rest rather than inventing one.
-    """
+    """Everything the pricing and validation layers need to know about a payoff."""
 
     name: str
     build: Callable[..., Payoff]
@@ -199,8 +185,10 @@ class PayoffSpec:
 
 
 def _call_bounds(underlying, strike, discount):
-    """A call is worth at least its discounted intrinsic, never more than
-    the underlying."""
+    """
+    A call is worth at least its discounted intrinsic, never more than the
+    underlying.
+    """
 
     return max(float(underlying - strike * discount), 0.0), float(underlying)
 
@@ -268,7 +256,5 @@ register_payoff(
     PayoffSpec("european_put", EuropeanPut, False, omega=-1.0, bounds=_put_bounds)
 )
 
-# an arithmetic average is less volatile than the terminal value, so the
-# European bounds do not carry over; none is declared rather than a wrong one
 register_payoff(PayoffSpec("asian_call", AsianCall, True, omega=1.0))
 register_payoff(PayoffSpec("asian_put", AsianPut, True, omega=-1.0))

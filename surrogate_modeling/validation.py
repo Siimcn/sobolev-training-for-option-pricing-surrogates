@@ -14,21 +14,7 @@ def run_reference_validation(
     arbitrage_tolerance_sigma: float = 3.0,
     label_price_fn=None,
 ) -> Dict[str, float]:
-    """
-    Independent check on a trained surrogate, for any pricing problem.
-
-    Every statistic here is chosen to survive a near-zero price. The
-    earlier suite reported a mean of per-point relative errors, which one
-    deep-OTM point with a true price of 0.06 pushed to 354% while the
-    other eight points sat below 4%. Relative summaries are medians; the
-    headline error is absolute; and a bias term is reported, because a
-    systematic offset is invisible in any magnitude-only metric.
-
-    When `label_price_fn` is given, the training labels are measured
-    against the same reference alongside the surrogate. That separates
-    "the network is wrong" from "the labels it was fitted to are wrong" -
-    a distinction the previous suite could not make.
-    """
+    """Independent check on a trained surrogate, for any pricing problem."""
 
     print("\n===== Reference Validation (independent seed) =====\n")
 
@@ -87,13 +73,7 @@ def _reference_prices(problem, points, key) -> Optional[jnp.ndarray]:
 
 
 def _price_report(label, predicted, reference, points) -> Dict[str, float]:
-    """
-    Absolute error, bias and a median relative error.
-
-    The bias is the number that matters most: it is what a coherent label
-    offset or a systematically low surrogate looks like, and it is exactly
-    what RMSE and R^2 cannot see.
-    """
+    """Absolute error, bias and a median relative error."""
 
     error = predicted - reference
 
@@ -101,11 +81,9 @@ def _price_report(label, predicted, reference, points) -> Dict[str, float]:
     rmse = float(jnp.sqrt(jnp.mean(error**2)))
     mae = float(jnp.mean(jnp.abs(error)))
 
-    # median, not mean: one near-zero denominator must not own the summary
     relative = jnp.abs(error) / jnp.maximum(jnp.abs(reference), 1e-8)
     median_relative = 100 * float(jnp.median(relative))
 
-    # bounded and symmetric, so it stays interpretable at any price level
     smape = 100 * float(
         jnp.mean(
             2.0
@@ -130,9 +108,8 @@ def _price_report(label, predicted, reference, points) -> Dict[str, float]:
 
 def _analytic_report(problem, points, reference) -> Dict[str, float]:
     """
-    Where a closed form exists, how far the Monte Carlo reference sits from
-    it. This is the yardstick the surrogate's own error should be read
-    against.
+    Where a closed form exists, how far the Monte Carlo reference sits from it.
+    This is the yardstick the surrogate's own error should be read against.
     """
 
     if problem.analytic_price(points[0]) is None:
@@ -158,12 +135,6 @@ def _check_arbitrage(surrogate, problem, points, tolerance_sigma) -> Dict[str, f
     """
     A breach is only reported when it exceeds the Monte Carlo noise of the
     reference itself.
-
-    Without that tolerance the check flags the label noise as a defect: at
-    deep-in-the-money strikes the time value is smaller than one standard
-    error, so even an exact pricer breaches the bound sometimes. The
-    breach is also reported relative to the time value, which is the scale
-    that decides whether it matters.
     """
 
     if problem.arbitrage_bounds(points[0]) is None:
@@ -229,8 +200,8 @@ def _reference_noise(problem, points, replications: int = 4) -> jnp.ndarray:
 def _check_shape(surrogate, problem, points) -> Dict[str, float]:
     """
     Sign conditions the true price gradient satisfies, checked on the
-    surrogate. No reference price is needed, so this is the cheapest
-    diagnostic here and the hardest to argue with.
+    surrogate. No reference price is needed, so this is the cheapest diagnostic
+    here and the hardest to argue with.
     """
 
     constraints = problem.shape_constraints()
@@ -275,10 +246,10 @@ def _check_shape(surrogate, problem, points) -> Dict[str, float]:
 
 def _check_exchangeability(surrogate, problem, points) -> Dict[str, float]:
     """
-    Where the true price is invariant under permuting a group of features,
-    the surrogate should be too. Reported in absolute terms and as a
-    median relative deviation - the previous worst-relative figure was set
-    by a single near-zero price.
+    Where the true price is invariant under permuting a group of features, the
+    surrogate should be too. Reported in absolute terms and as a median
+    relative deviation - the previous worst-relative figure was set by a single
+    near-zero price.
     """
 
     indices = problem.exchangeable_features
@@ -315,9 +286,9 @@ def _check_exchangeability(surrogate, problem, points) -> Dict[str, float]:
 def _check_comonotonic_limit(problem, points) -> Dict[str, float]:
     """
     The one testable consequence of an assumed dependence structure:
-    diversification can only reduce a call's value, so the simulated price
-    must not exceed its perfectly-correlated limit. Skipped where the
-    problem declares no such limit.
+    diversification can only reduce a call's value, so the simulated price must
+    not exceed its perfectly-correlated limit. Skipped where the problem
+    declares no such limit.
     """
 
     if problem.comonotonic_limit_price(points[0]) is None:
@@ -325,7 +296,6 @@ def _check_comonotonic_limit(problem, points) -> Dict[str, float]:
 
     n_assets = len(problem.exchangeable_features) or 1
 
-    # collapse each point onto a single common spot, where the limit holds
     collapsed = points.at[:, :n_assets].set(
         jnp.repeat(jnp.mean(points[:, :n_assets], axis=1, keepdims=True), n_assets, axis=1)
     )
@@ -343,9 +313,6 @@ def _check_comonotonic_limit(problem, points) -> Dict[str, float]:
         [float(problem.comonotonic_limit_price(x)) for x in collapsed[:64]]
     )
 
-    # at the configured rho the two differ by construction; the check is
-    # that the gap is the diversification benefit, i.e. the basket is worth
-    # no more than the perfectly correlated one
     excess = simulated - analytic
 
     print(

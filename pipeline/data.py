@@ -13,8 +13,6 @@ def build_dataset(
     problem: PricingProblem,
     config: ExperimentConfig,
 ) -> SobolevDataset:
-    # prices/gradients/HVPs come from the problem's MC pricer, not a closed
-    # form (that's only used for calibration and validation)
     return create_sobolev_dataset(
         problem,
         config.data.sobolev_order,
@@ -60,8 +58,6 @@ def plot_training_path_samples(
             f"\nSample {i}:"
         )
 
-        # the feature layout is the problem's, so label the values from it
-        # rather than assuming [S, K, T, sigma, r]
         for name, value in zip(problem.feature_names, dataset.X[i]):
             print(f"{name:6s}= {float(value):.4f}")
 
@@ -77,7 +73,6 @@ def split_dataset(
     dataset: SobolevDataset,
     config: ExperimentConfig,
 ) -> Tuple[SobolevDataset, SobolevDataset]:
-    # split before computing normalization stats, to avoid test-set leakage
     train_dataset, test_dataset = (
         train_test_split(
             dataset,

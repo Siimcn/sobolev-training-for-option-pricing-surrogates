@@ -20,30 +20,7 @@ def simulate_basket_terminal(
     key: jnp.ndarray,
     antithetic: bool = True,
 ):
-    """
-    Exact terminal draws of correlated geometric Brownian assets.
-
-    A GBM with constant coefficients has a known transition law, so the
-    terminal state is drawn in a single step
-
-        S_i(T) = S_i(0) exp((r - sigma_i^2 / 2) T + sigma_i sqrt(T) Z_i)
-
-    with Z correlated by the Cholesky factor of `corr`. For a payoff that
-    reads only S(T) this carries no discretisation error at all, and costs
-    one normal per asset per path instead of `num_steps` of them.
-
-    With `antithetic` every draw Z is paired with -Z. Both have the same
-    law, so the estimator stays unbiased, and the two payoffs are
-    negatively correlated, which removes most of the variance that comes
-    from the level of the basket. Adapted from diff-ml's
-    `Bachelier.antithetic_payoff`.
-
-    Returns a tuple of terminal-state blocks to be averaged over: one
-    entry without antithetics, two with.
-
-    Not valid for a path-dependent payoff - an Asian option needs the
-    whole trajectory - which is why the stepping scheme stays.
-    """
+    """Exact terminal draws of correlated geometric Brownian assets."""
 
     z = jax.random.normal(key, (num_paths, len(sigmas)))
 
@@ -73,13 +50,7 @@ def basket_price(
     smooth_w: float = 1.0,
     antithetic: bool = True,
 ):
-    """
-    One basket price under an explicit `key`.
-
-    The scheme follows the payoff: a terminal-only payoff is priced from
-    an exact one-step draw, a path-dependent one from the stepping scheme.
-    Nothing here decides that - `payoff_spec(...).path_dependent` does.
-    """
+    """One basket price under an explicit `key`."""
 
     spec = payoff_spec(payoff)
 
@@ -149,8 +120,8 @@ def uniform_correlation(n_assets: int, rho: float) -> jnp.ndarray:
 def is_exchangeable(weights: jnp.ndarray, sigmas: jnp.ndarray, corr: jnp.ndarray) -> bool:
     """
     True when permuting the spots leaves the true price unchanged: equal
-    weights, equal vols and a correlation matrix with one off-diagonal
-    value. Only then may the price function be symmetrized.
+    weights, equal vols and a correlation matrix with one off-diagonal value.
+    Only then may the price function be symmetrized.
     """
 
     off_diagonal = corr[~jnp.eye(len(corr), dtype=bool)]
@@ -174,27 +145,7 @@ def make_basket_feature_price(
     symmetrize: bool = False,
     antithetic: bool = True,
 ):
-    """
-    Build `f(x, key) -> price` for a basket option, with the feature layout
-
-        x = [S_1, ..., S_n, K, T]
-
-    The basket structure (weights, correlation, per-asset vols, rate) is
-    fixed here rather than carried in x, mirroring how diff-ml's Bachelier
-    example uses the spot vector alone as its input.
-
-    The key is an argument, not a closure. Binding one key for a whole
-    dataset makes every label share a single realisation of the Monte
-    Carlo error, which then does not average out over samples - see
-    `create_sobolev_labels` for the measurement and the reasoning.
-
-    With `symmetrize` the spots are sorted before pricing. Asset i draws
-    Brownian column i, so the raw estimator is not invariant under
-    permuting the spots even though the true price is - it teaches the
-    network an asymmetry that does not exist. Sorting picks one
-    representative per orbit and restores the invariance exactly, at no
-    extra cost; the gradient permutes back correctly.
-    """
+    """Build `f(x, key) -> price` for a basket option, with the feature layout"""
 
     if symmetrize and not is_exchangeable(weights, sigmas, corr):
         raise ValueError(
@@ -252,8 +203,6 @@ def basket_feature_price(
         corr=corr,
     )
 
-    # same construction as _payoff_smoothing_width, with the basket
-    # value standing in for the single-asset spot
     basket0 = jnp.sum(weights * s0)
     dispersion = basket0 * jnp.mean(sigmas) * jnp.sqrt(jnp.maximum(maturity, 1e-6))
     smooth_w = jnp.maximum(smooth_fraction * dispersion, 1e-3)
@@ -283,12 +232,7 @@ def generate_basket_training_paths(
     num_steps: int = 50,
     seed: int = 0,
 ):
-    """
-    Basket value paths behind one training label, with x = [S_1, ..., S_n, K, T].
-
-    Returns the weighted basket, which is what the option is written on,
-    rather than the individual assets.
-    """
+    """Basket value paths behind one training label, with x = [S_1, ..., S_n, K, T]."""
 
     n_assets = len(weights)
 
@@ -318,12 +262,7 @@ def simulate_basket_assets(
     num_steps: int,
     key: jnp.ndarray,
 ):
-    """
-    Correlated per-asset paths, shaped `(num_paths, num_steps + 1, n_assets)`.
-
-    The individual assets rather than the weighted basket, because the
-    surrogate's features are the spots themselves.
-    """
+    """Correlated per-asset paths, shaped `(num_paths, num_steps + 1, n_assets)`."""
 
     model = BasketBlackScholesModel(scheme=EulerMaruyama())
 
@@ -360,13 +299,7 @@ def basket_greeks(
     num_paths: int = 50_000,
     num_steps: int = 50,
 ):
-    """
-    Price and per-asset deltas/gammas of a basket option.
-
-    Pathwise AD through the whole Monte Carlo simulation. The key is fixed
-    within one call, which is exactly where common random numbers belong:
-    all derivatives are taken at the same point on the same paths.
-    """
+    """Price and per-asset deltas/gammas of a basket option."""
 
     def price_fn(s0_):
         return basket_price(

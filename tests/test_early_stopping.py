@@ -66,8 +66,6 @@ def _trainer(dataset, **overrides):
 
 
 def test_defaults_select_on_the_full_objective():
-    # selecting on price+gradient was measured to stop while the curvature
-    # term was still descending; TOTAL is the research objective itself
     config = TrainingConfig()
 
     assert config.selection_metric == TOTAL
@@ -95,7 +93,6 @@ def test_config_rejects_invalid_selection_settings():
 
 
 def test_absolute_threshold_is_used_on_the_first_epoch():
-    # best_loss starts at inf, so a relative threshold would be infinite
     trainer = _trainer(_dataset(), min_delta=1e-6, min_delta_relative=1e-3)
 
     assert trainer._improvement_threshold(float("inf")) == 1e-6
@@ -105,7 +102,6 @@ def test_absolute_threshold_is_used_on_the_first_epoch():
 def test_relative_threshold_scales_with_the_loss():
     trainer = _trainer(_dataset(), min_delta_relative=1e-2)
 
-    # a fixed absolute threshold would demand the same gain at every scale
     assert abs(trainer._improvement_threshold(1.0) - 1e-2) < 1e-15
     assert abs(trainer._improvement_threshold(0.01) - 1e-4) < 1e-15
 
@@ -135,7 +131,6 @@ def test_price_gradient_selection_drops_the_hvp_term():
 
     assert abs(selection - expected) < 1e-12
 
-    # the huge HVP term must not move it at all
     metrics["hessian_loss"] = 1e9
     assert abs(trainer._selection_loss(999.0, metrics) - expected) < 1e-12
 
@@ -157,7 +152,6 @@ def test_price_gradient_selection_survives_a_missing_gradient_term():
 
 
 def test_relative_threshold_stops_a_converged_run():
-    # a threshold this coarse cannot be met, so patience runs out at once
     train, valid = train_test_split(_dataset())
 
     history = _trainer(

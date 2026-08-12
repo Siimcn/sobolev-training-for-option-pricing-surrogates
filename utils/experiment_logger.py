@@ -6,12 +6,7 @@ from datetime import datetime
 
 
 def _json_safe(value):
-    """
-    Coerce a possibly nested config into JSON types.
-
-    Recurses through dataclasses so a config made of sub-configs is
-    archived in full rather than as the repr of its parts.
-    """
+    """Coerce a possibly nested config into JSON types."""
 
     if is_dataclass(value) and not isinstance(value, type):
         return {f.name: _json_safe(getattr(value, f.name)) for f in fields(value)}
@@ -25,7 +20,6 @@ def _json_safe(value):
     if isinstance(value, (bool, int, float, str)) or value is None:
         return value
 
-    # JAX and numpy scalars
     if hasattr(value, "item"):
         try:
             return value.item()
@@ -36,12 +30,7 @@ def _json_safe(value):
 
 
 class LoggerWriter:
-    """
-    Tee für sys.stdout: schreibt in Konsole und Logdatei.
-
-    echo=False drops the terminal half, which is how a run is silenced
-    without touching any print() call site.
-    """
+    """Tee für sys.stdout: schreibt in Konsole und Logdatei."""
 
     def __init__(self, filename, echo=True):
         self.terminal = sys.stdout
@@ -82,8 +71,6 @@ class ExperimentLogger:
             exist_ok=True,
         )
 
-        # replaces the process-wide sys.stdout, so every later print() in
-        # the run is captured without touching the call sites
         sys.stdout = LoggerWriter(
             self.path("console_output.txt"),
             echo=echo,
@@ -106,15 +93,13 @@ class ExperimentLogger:
         filename: str = "calibration.json",
     ):
 
-        data = {
-            "Spot": float(spot),
-            "Sigma": float(
-                fitted_params.sigma
-            ),
-            "Rate": float(
-                fitted_params.r
-            ),
-        }
+        fields = (
+            fitted_params._asdict()
+            if hasattr(fitted_params, "_asdict")
+            else {"params": fitted_params}
+        )
+
+        data = {"Spot": float(spot), **_json_safe(dict(fields))}
 
         with open(
             self.path(filename),
@@ -126,8 +111,6 @@ class ExperimentLogger:
                 f,
                 indent=4,
             )
-
-
 
     def save_metrics(
         self,
@@ -154,7 +137,6 @@ class ExperimentLogger:
                 f,
                 indent=4,
             )
-
 
     def save_xva(
         self,

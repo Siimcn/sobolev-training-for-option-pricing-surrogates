@@ -23,7 +23,6 @@ class Visualizer:
 
     show_plots = _SHOW_PLOTS
 
-
     @staticmethod
     def _feature_label(labels, index: int) -> str:
         """Falls back to a positional name, so an unlabelled model still plots."""
@@ -32,7 +31,6 @@ class Visualizer:
             return str(labels[index])
 
         return f"Input {index}"
-
 
     @staticmethod
     def _save(
@@ -71,7 +69,6 @@ class Visualizer:
             plt.show()
         plt.close()
 
-
     @staticmethod
     def set_logger(
         logger,
@@ -84,7 +81,6 @@ class Visualizer:
     ):
         """Turn on-screen display on/off at runtime."""
         Visualizer.show_plots = bool(show)
-
 
     @staticmethod
     def _rolling_average(values, window: int = 10):
@@ -112,8 +108,8 @@ class Visualizer:
     ):
         """
         One train/valid pair on a log-scale y-axis, raw curve faint and
-        smoothed curve solid. Log scale because the loss drops several
-        orders of magnitude in the first ~10-20 epochs.
+        smoothed curve solid. Log scale because the loss drops several orders
+        of magnitude in the first ~10-20 epochs.
         """
 
         train_values = np.asarray(train_values, dtype=float)
@@ -153,14 +149,7 @@ class Visualizer:
         zoom_start_epoch: int = 10,
         smooth_window: int = 10,
     ):
-        """
-        Training diagnostics figure (2x3 grid).
-
-        The loss components get their own panels because the total loss
-        is dominated by whichever term has the largest magnitude, so it
-        can look healthy while gradient/HVP is barely learning (or
-        overfitting) underneath.
-        """
+        """Training diagnostics figure (2x3 grid)."""
 
         train_loss = history.get("train_loss", [])
         valid_loss = history.get("valid_loss", [])
@@ -217,8 +206,6 @@ class Visualizer:
 
             train_vals = history.get(train_key, [])
 
-            # a term excluded from this run is all zeros - flag it instead
-            # of plotting a misleading flat line at the log-axis floor
             is_unused = len(train_vals) == 0 or all(
                 float(v) == 0.0 for v in train_vals
             )
@@ -248,7 +235,6 @@ class Visualizer:
         Visualizer._save(
             filename
         )
-
 
     @staticmethod
     def plot_mc_paths(
@@ -388,13 +374,7 @@ class Visualizer:
         grid_points: int = 50,
         filename: str = "surrogate_surface.png",
     ):
-        """
-        A 2-D slice through the surrogate's input space.
-
-        `feature_labels` names the axes. It is passed in rather than known
-        here, because which features exist depends on what is being priced
-        - assuming [S, K, T, sigma, r] mislabels every other model.
-        """
+        """A 2-D slice through the surrogate's input space."""
 
         x = jnp.linspace(
             x_range[0],

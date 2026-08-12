@@ -60,34 +60,17 @@ def _problem(model=BASKET_BLACK_SCHOLES, payoff="european_call", min_maturity=0.
     )
 
 
-# ------------------------------------------------------------- positivity
-
-
 def _network(constant):
     return lambda x: jnp.asarray(constant) + 0.0 * jnp.sum(x)
 
 
 def test_the_surrogate_output_is_left_unconstrained():
-    """
-    A softplus positivity transform was tried and removed.
-
-    Any map from R onto (0, inf) that behaves like the identity for large
-    values must have a vanishing derivative for very negative ones, and the
-    two are rigidly linked: a floor below 0.01 forces saturation at about
-    -10 price units, which an untrained network reaches easily. In a
-    600-sample run the gradient underflowed to exactly zero and training
-    froze at epoch 25 with a bit-identical loss.
-
-    Negative prices are reported by the validation stage instead, and the
-    exposure profile no longer leaves the training domain - which is where
-    they actually came from.
-    """
+    """A softplus positivity transform was tried and removed."""
 
     model = SurrogateModel(_network(-5.0), y_std=jnp.array(100.0))
 
     assert float(model.predict_price(jnp.zeros(5))) < 0.0
 
-    # the gradient stays alive everywhere, which is what the transform broke
     scaled = SurrogateModel(lambda x: jnp.sum(x), y_std=jnp.array(100.0))
 
     for level in (-1e4, -1.0, 0.0, 1e4):
@@ -96,12 +79,7 @@ def test_the_surrogate_output_is_left_unconstrained():
         assert bool(jnp.all(jnp.abs(gradient) > 0.0)), level
 
 
-# ------------------------------------------------------- exposure domain
-
-
 def test_exposure_paths_stop_at_the_training_floor():
-    # regression: the profile ran the remaining maturity down to 1e-8,
-    # evaluating the surrogate below min_maturity where it was never fitted
     for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
         problem = _problem(model)
 
@@ -125,9 +103,6 @@ def test_exposure_paths_without_a_floor_still_reach_expiry():
     assert float(jnp.min(features[:, :, 2])) < 1e-6
 
 
-# ------------------------------------------------------- arbitrage bounds
-
-
 def test_call_and_put_bounds_have_the_right_shape():
     call = _problem(BLACK_SCHOLES, payoff="european_call")
     put = _problem(BLACK_SCHOLES, payoff="european_put")
@@ -142,8 +117,6 @@ def test_call_and_put_bounds_have_the_right_shape():
 
 
 def test_a_path_dependent_payoff_declares_no_bounds():
-    # an arithmetic average is less volatile than the terminal value, so
-    # the European bounds do not carry over
     asian = _problem(BASKET_BLACK_SCHOLES, payoff="asian_call")
 
     assert asian.arbitrage_bounds(asian.baseline_features()) is None
@@ -170,9 +143,6 @@ def test_basket_deltas_are_bounded_by_their_weight():
 
     for i in range(3):
         assert abs(constraints[f"S{i + 1}"].high - 1.0 / 3.0) < 1e-12
-
-
-# ---------------------------------------------------------- payoff registry
 
 
 def test_built_in_payoffs_are_registered():
@@ -216,7 +186,6 @@ def test_a_new_payoff_needs_only_a_registration():
 
     assert float(payoff(jnp.array(120.0))) > 0.0
 
-    # and it is selectable without touching anything else
     config = ExperimentConfig(payoff=PayoffConfig(name="test_straddle"))
 
     assert config.payoff.name == "test_straddle"

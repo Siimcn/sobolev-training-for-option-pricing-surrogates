@@ -17,9 +17,7 @@ DiffusionFn = Callable[
 
 
 class TimeSteppingScheme(eqx.Module):
-    """
-    Basisklasse für SDE-Solver.
-    """
+    """Basisklasse für SDE-Solver."""
 
     def step(
         self,
@@ -59,7 +57,6 @@ class TimeSteppingScheme(eqx.Module):
             )
             * jnp.sqrt(dt)
         )
-        # correlate the Brownian increments (Cholesky)
         if corr is not None:
 
             L = jnp.linalg.cholesky(

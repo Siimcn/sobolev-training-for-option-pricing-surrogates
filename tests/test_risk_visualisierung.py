@@ -143,8 +143,6 @@ def test_reference_engine_agrees_with_a_perfect_surrogate():
 
 
 def test_reference_pricer_is_injected_not_assumed():
-    # regression: the reference used to hardcode the Black-Scholes formula
-    # on x = [S, K, T, sigma, r], which silently mispriced any other layout
     engine = RiskEngine()
     time_grid = jnp.linspace(0.0, 1.0, N_STEPS)
     paths = _feature_paths(time_grid)
@@ -276,9 +274,6 @@ def test_surrogate_surface_plot():
 
 
 def test_surface_labels_come_from_the_caller_not_a_fixed_table():
-    # regression: the axis names used to be a hardcoded [S, K, T, sigma, r]
-    # table, so every basket surface was labelled with features it lacks,
-    # and a sixth feature raised KeyError
     labels = ("S1", "S2", "S3", "K", "T")
 
     assert Visualizer._feature_label(labels, 1) == "S2"

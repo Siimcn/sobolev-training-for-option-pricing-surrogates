@@ -51,15 +51,7 @@ def _plot_price_surfaces(
     problem: PricingProblem,
     config: ExperimentConfig,
 ) -> None:
-    """
-    Slices through the surrogate's input space, all of it from `problem`.
-
-    The anchor point, the swept dimensions, their ranges, the axis labels
-    and the filenames are the problem's own, so a plot cannot describe a
-    feature layout the surrogate does not have. The ranges come from the
-    same code that drew the training set, so a surface never extends past
-    where the surrogate was fitted.
-    """
+    """Slices through the surrogate's input space, all of it from `problem`."""
 
     baseline = problem.baseline_features()
 
@@ -110,12 +102,7 @@ def save_artifacts(
         {
             **metrics,
             **(validation or {}),
-            "CalibratedSigma": float(
-                calibration.params.sigma
-            ),
-            "CalibratedRate": float(
-                calibration.params.r
-            ),
+            **_fitted_metrics(calibration),
             "Spot": float(
                 market_data.spot
             ),
@@ -131,6 +118,31 @@ def save_artifacts(
     logger.save_config(
         config.to_dict(problem)
     )
+
+
+def _fitted_fields(calibration) -> Dict[str, object]:
+    """The fitted parameters by their own names, whatever the model calls them."""
+
+    params = calibration.params
+
+    if hasattr(params, "_asdict"):
+        return dict(params._asdict())
+
+    return {"params": params}
+
+
+def _fitted_metrics(calibration) -> Dict[str, float]:
+    """Prefixed so they cannot collide with a metric name."""
+
+    out = {}
+
+    for name, value in _fitted_fields(calibration).items():
+        try:
+            out[f"Calibrated_{name}"] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    return out
 
 
 def _report_text(
@@ -159,8 +171,10 @@ def _report_text(
         else "    not run\n"
     )
 
-    # what the market data did not determine, kept next to what it did, so
-    # an assumed parameter is never read as a fitted one
+    fitted_block = "".join(
+        f"    {k:<34s}: {v}\n" for k, v in _fitted_fields(calibration).items()
+    )
+
     assumption_block = (
         "".join(f"    {k:<34s}: {v}\n" for k, v in calibration.assumptions.items())
         if calibration.assumptions
@@ -174,9 +188,11 @@ def _report_text(
     Pricing model    : {problem.name}
     Features         : {', '.join(problem.feature_names)}
 
-    Calibrated Sigma : {calibration.params.sigma}
-    Calibrated Rate  : {calibration.params.r}
     Converged        : {calibration.converged}
+
+    Fitted parameters
+    -----------------
+{fitted_block}
 
     Assumed, not calibrated
     -----------------------

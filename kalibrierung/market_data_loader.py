@@ -115,10 +115,8 @@ class MarketDataLoader:
                     & (ask >= bid)
                 )
 
-                # open interest is the time-of-day independent screen
                 liquid = open_interest >= min_open_interest
 
-                # volume, if requested, can only add contracts
                 if min_volume > 0:
                     liquid = liquid | (volume >= min_volume)
 

@@ -15,9 +15,7 @@ def black_scholes_price(
     is_call: jnp.ndarray,
     spot: float,
 ) -> jnp.ndarray:
-    """
-    Vectorized Black-Scholes pricing.
-    """
+    """Vectorized Black-Scholes pricing."""
 
     r = params.r
 
@@ -72,9 +70,7 @@ def black_scholes_price_single(
     r: float,
     is_call: bool = True,
 ):
-    """
-    Single European option price.
-    """
+    """Single European option price."""
 
     params = BlackScholesParams(
         r=r,

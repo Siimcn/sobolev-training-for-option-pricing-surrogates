@@ -38,13 +38,7 @@ def validate_surrogate(
     problem: PricingProblem,
     config: ExperimentConfig,
 ) -> Optional[Dict[str, float]]:
-    """
-    Independent benchmark, run for every pricing model alike.
-
-    Test-set metrics only say the surrogate reproduces its own labels; this
-    re-prices it against Monte Carlo with an unrelated seed and checks the
-    model-free properties the problem declares.
-    """
+    """Independent benchmark, run for every pricing model alike."""
 
     if not config.validation.enabled:
         return None
@@ -55,8 +49,6 @@ def validate_surrogate(
         n_points=config.validation.n_points,
         seed=config.validation.seed,
         arbitrage_tolerance_sigma=config.validation.arbitrage_tolerance_sigma,
-        # measured against the same benchmark, so a systematic error in the
-        # labels is never mistaken for a failure of the network
         label_price_fn=problem.label_price_fn(),
     )
 

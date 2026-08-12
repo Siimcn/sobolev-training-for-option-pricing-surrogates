@@ -38,9 +38,11 @@ def _problem(config):
 
 @contextmanager
 def _logger(echo=True):
-    """ExperimentLogger replaces the process-wide sys.stdout in its
-    constructor and never closes the file it opens, so a test has to undo
-    both or Windows cannot remove the temporary directory."""
+    """
+    ExperimentLogger replaces the process-wide sys.stdout in its constructor
+    and never closes the file it opens, so a test has to undo both or Windows
+    cannot remove the temporary directory.
+    """
 
     original_stdout = sys.stdout
 
@@ -183,8 +185,6 @@ def test_save_config_serializes_the_training_config():
 
 
 def test_save_config_archives_a_nested_experiment_config():
-    # the whole point: pricing model, domain and basket structure must be
-    # recoverable from the artifacts, not just the training hyperparameters
     config = ExperimentConfig(
         data=DataConfig(pricing_model="basket_black_scholes", min_maturity=0.05),
         basket=BasketConfig(n_assets=3, correlation=0.5, symmetrize=True),
@@ -216,13 +216,10 @@ def test_save_config_archives_a_nested_experiment_config():
     assert saved["derived"]["feature_names"] == ["S1", "S2", "S3", "K", "T"]
     assert saved["derived"]["n_features"] == 5
 
-    # the sampled domain is archived too, so a plot range in a report can
-    # be checked against what the surrogate was actually trained on
     assert len(saved["derived"]["domain_low"]) == 5
     assert saved["derived"]["domain_low"][4] >= 0.05
     assert saved["derived"]["exchangeable_features"] == [0, 1, 2]
 
-    # an assumed parameter is archived as an assumption, never as a fit
     assert saved["derived"]["assumptions"]["correlation"] == 0.5
 
 
@@ -242,22 +239,31 @@ def test_config_without_a_problem_omits_the_derived_block():
 
 
 def test_save_calibration_and_report():
-    class Params:
-        sigma = 0.25
-        r = 0.03
+    from marktsimulation.pricing_model import BlackScholesParams, HestonParams
 
     with _logger() as (logger, _):
-        logger.save_calibration(Params(), spot=101.5)
+        logger.save_calibration(BlackScholesParams(r=0.03, sigma=0.25), spot=101.5)
         logger.save_report("report body")
 
         saved = _read_json(logger.path("calibration.json"))
 
         assert abs(saved["Spot"] - 101.5) < 1e-12
-        assert abs(saved["Sigma"] - 0.25) < 1e-12
-        assert abs(saved["Rate"] - 0.03) < 1e-12
+        assert abs(saved["sigma"] - 0.25) < 1e-12
+        assert abs(saved["r"] - 0.03) < 1e-12
 
         with open(logger.path("report.txt"), encoding="utf-8") as handle:
             assert handle.read() == "report body"
+
+    with _logger() as (logger, _):
+        logger.save_calibration(
+            HestonParams(r=0.03, kappa=2.0, theta=0.04, xi=0.5, rho=-0.7, nu0=0.04),
+            spot=101.5,
+        )
+
+        saved = _read_json(logger.path("calibration.json"))
+
+        assert set(saved) == {"Spot", "r", "kappa", "theta", "xi", "rho", "nu0"}
+        assert abs(saved["kappa"] - 2.0) < 1e-12
 
 
 def test_print_location_runs():

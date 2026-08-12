@@ -52,7 +52,6 @@ class AttentionNet(eqx.Module):
     def __init__(self, in_size, out_size=1, width_size=16, num_heads=2, *, key, **kwargs):
         embed_key, attention_key, head_key = jax.random.split(key, 3)
 
-        # every input feature (S, K, T, ...) becomes one token
         self.embed = eqx.nn.Linear(1, width_size, key=embed_key)
         self.attention = eqx.nn.MultiheadAttention(num_heads, width_size, key=attention_key)
         self.norm = eqx.nn.LayerNorm(width_size)
@@ -200,7 +199,6 @@ def test_duplicate_registration_needs_overwrite():
 
 
 def test_custom_architecture_can_be_registered():
-    # a plain eqx.Module class is a valid builder
     register_architecture("BASIS", LinearBasisNet, overwrite=True)
 
     assert "BASIS" in available_architectures()
@@ -216,7 +214,6 @@ def test_custom_architecture_can_be_registered():
 
 
 def test_surrogate_accepts_raw_equinox_model():
-    # goal.txt: "by just accepting JAX models like equinox.nn.MLP"
     network = eqx.nn.MLP(
         in_size=D,
         out_size=1,
@@ -293,7 +290,6 @@ def test_surrogate_rejects_non_callable():
 
 
 def test_residual_mlp_is_twice_differentiable():
-    # the smooth default activation must survive the skip connections
     network = ResidualMLP(
         in_size=D,
         out_size=1,
@@ -350,14 +346,12 @@ def test_foreign_architecture_registers_and_trains():
 
     trainer = _fit_and_check(_surrogate(network, dataset), dataset)
 
-    # its own weights were optimized, not just some wrapper around it
     moved = jnp.abs(trainer.model.model.head.weight - network.head.weight)
 
     assert float(jnp.max(moved)) > 0.0
 
 
 def test_attention_network_is_twice_differentiable():
-    # attention/LayerNorm stay smooth, so sobolev_order=2 keeps working
     network = AttentionNet(in_size=D, width_size=16, key=jax.random.PRNGKey(0))
 
     hessian = _surrogate(network, _toy_dataset()).predict_hessian(jnp.ones(D))
@@ -367,7 +361,6 @@ def test_attention_network_is_twice_differentiable():
 
 
 def test_functional_network_trains_foreign_parameters():
-    # the adapted foreign parameters must still reach the optimizer
     dataset = _toy_dataset()
 
     params, apply_fn = _params_separate_net(jax.random.PRNGKey(0), D)

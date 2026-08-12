@@ -23,8 +23,6 @@ def build_surrogate(
     config: ExperimentConfig,
 ) -> Surrogate:
 
-    # nothing downstream depends on the architecture; SurrogateModel takes
-    # any callable JAX model, the registry is only a convenience
     network = build_network(
         architecture=config.network.architecture,
         key=jax.random.PRNGKey(config.network.seed),
@@ -34,8 +32,6 @@ def build_surrogate(
         depth=config.network.depth,
     )
 
-    # features and the price target span very different scales, which
-    # leaves training ill-conditioned without normalization
     x_mean = jnp.mean(train_dataset.X, axis=0)
     x_std = jnp.std(train_dataset.X, axis=0)
     y_mean = jnp.mean(train_dataset.y)

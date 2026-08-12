@@ -4,11 +4,13 @@ from typing import Optional, Tuple
 
 from marktsimulation.payoff import available_payoffs
 
-# imported for the registration side effect: the built-in problems must be
-# in the registry before `pricing_model` can be validated against it
+import surrogate_modeling.heston_problems  # noqa: F401
 import surrogate_modeling.problems  # noqa: F401
 
+from surrogate_modeling.heston_problems import BASKET_HESTON, HESTON
 from surrogate_modeling.problems import (
+    BACHELIER,
+    BASKET_BACHELIER,
     BASKET_BLACK_SCHOLES,
     BLACK_SCHOLES,
 )
@@ -16,9 +18,14 @@ from surrogate_modeling.pricing_problem import available_problems
 from surrogate_modeling.training_config import TOTAL, TrainingConfig
 
 __all__ = [
+    "BACHELIER",
+    "BASKET_BACHELIER",
     "BASKET_BLACK_SCHOLES",
+    "BASKET_HESTON",
     "BLACK_SCHOLES",
+    "HESTON",
     "BasketConfig",
+    "HestonConfig",
     "DataConfig",
     "ExperimentConfig",
     "MarketConfig",
@@ -39,22 +46,13 @@ class MarketConfig:
 
     cache_path: str = "data/aapl_chain.json"
 
-    # snapshot the chain so runs are reproducible and work outside US
-    # market hours; delete the file to refetch
     use_cache: bool = True
 
     initial_rate: float = 0.05
     initial_sigma: float = 0.20
 
-    # Calibration engine. True uses the closed-form Black-Scholes price:
-    # fast and bitwise reproducible. False prices the same instruments
-    # with the Monte Carlo simulator, which is far slower, depends on the
-    # seed, and inherits the simulation's payoff-smoothing bias. Black-
-    # Scholes has a closed form, so True is the better choice here; the
-    # Monte Carlo branch exists for models that have none.
     black_scholes_analytic: bool = True
 
-    # only read when black_scholes_analytic is False
     mc_calibration_seed: int = 0
     mc_calibration_paths: int = 50_000
     mc_calibration_steps: int = 50
@@ -66,69 +64,64 @@ class PayoffConfig:
 
     name: str = "european_call"
 
-    # width of the payoff-smoothing kernel, as a fraction of the terminal
-    # value's dispersion; a hard kink would make every second derivative
-    # either zero or a delta
     smooth_fraction: float = 0.05
 
 
 @dataclass(frozen=True)
 class SimulationConfig:
-    """
-    Monte Carlo settings for the training labels, shared by every model.
+    """Monte Carlo settings for the training labels, shared by every model."""
 
-    `shared_label_keys` reproduces the old behaviour of pricing the whole
-    dataset with one random stream. It is kept only so the bias it causes
-    stays reproducible and testable - it measurably shifts every label the
-    same way and that error never averages out. Leave it False.
-    """
-
-    # Exact terminal sampling made a label ~60x cheaper than the old
-    # 50-step Euler bundle, so the budget buys far more paths instead.
     num_paths: int = 200_000
 
-    # only read by path-dependent payoffs; a terminal-only payoff is drawn
-    # exactly in one step
     num_steps: int = 50
 
     label_seed: int = 0
     antithetic: bool = True
+
+    # leave False: one shared stream biases every label the same way
     shared_label_keys: bool = False
 
-    # paths for the independent benchmark; exact sampling makes a much
-    # tighter reference affordable than the labels themselves use
     reference_paths: int = 1_000_000
 
 
 @dataclass(frozen=True)
 class BasketConfig:
-    """
-    Read only when pricing_model is BASKET_BLACK_SCHOLES.
-
-    All assets share the calibrated single-name volatility and rate, and
-    the correlation is an assumption rather than a fit - the option chain
-    holds no basket instrument that could determine it. See
-    `calibrate_basket`.
-    """
+    """Read by every basket problem."""
 
     n_assets: int = 3
+
+    # assumed, not calibrated: the chain holds no basket instrument
     correlation: float = 0.5
 
     # None means equal weights
     weights: Optional[Tuple[float, ...]] = None
 
-    # Sort the spots before pricing. The true price is invariant under
-    # permuting them, the MC estimator is not; sorting restores that
-    # exactly. Requires an exchangeable basket, so turn it off for
-    # custom weights.
+    # sorts the spots before pricing; needs an exchangeable basket, so turn
+    # it off for custom weights
     symmetrize: bool = True
+
+
+@dataclass(frozen=True)
+class HestonConfig:
+    """Read only by the two Heston problems."""
+
+    initial_kappa: float = 2.0
+    initial_xi: float = 0.5
+    initial_rho: float = -0.7
+
+    parameter_band: float = 0.3
+
+    # separate from SimulationConfig: Heston steps through time, so cost
+    # scales with paths * steps and the exact-sampling budget runs out of memory
+    num_paths: int = 50_000
+    num_steps: int = 64
+    reference_paths: int = 200_000
 
 
 @dataclass(frozen=True)
 class DataConfig:
 
-    # what the surrogate learns to price; see available_problems()
-    pricing_model: str = BASKET_BLACK_SCHOLES
+    pricing_model: str = BASKET_HESTON
 
     n_samples: int = 600
     sobolev_order: int = 2
@@ -136,16 +129,10 @@ class DataConfig:
 
     seed: int = 0
 
-    # Floor on the sampled maturity. The shortest market expiries produce
-    # curvature labels thousands of times larger than the rest of the
-    # domain, which the pooled HVP error then reports almost exclusively.
-    # The risk stage stops at the same floor rather than extrapolating.
+    # floor, not cosmetic: the shortest expiries produce curvature labels
+    # thousands of times larger than the rest of the domain
     min_maturity: float = 0.05
 
-    # Shape of the sampling domain. Spots span a `domain_n_sigma` lognormal
-    # move over `domain_horizon` years, matching the exposure simulation;
-    # `r_spread` is the band around the calibrated rate, and is only read
-    # by models that carry the rate as a feature.
     r_spread: float = 0.02
     domain_n_sigma: float = 3.0
     domain_horizon: float = 1.0
@@ -160,7 +147,6 @@ class NetworkConfig:
     architecture: str = "MLP"
     seed: int = 42
 
-    # None derives the input width from the dataset
     in_size: Optional[int] = None
     out_size: int = 1
     width_size: int = 128
@@ -173,15 +159,10 @@ class ValidationConfig:
 
     enabled: bool = True
 
-    # cheap now that terminal sampling is exact; nine points were far too
-    # few for any of the diagnostics to be stable
     n_points: int = 128
 
-    # unrelated to the label seed, so the benchmark is genuinely independent
     seed: int = 12345
 
-    # a breach smaller than this many Monte Carlo standard errors is noise,
-    # not a violation
     arbitrage_tolerance_sigma: float = 3.0
 
 
@@ -208,17 +189,13 @@ def _training_config() -> TrainingConfig:
         epochs=1000,
         batch_size=32,
 
-        # Cosine decay to a small floor. At a constant rate the loss
-        # oscillates by a factor of three for hundreds of epochs and the
-        # selected model is whichever epoch was luckiest.
         lr_schedule="cosine",
         lr_final_fraction=0.02,
         warmup_epochs=10,
         gradient_clip=1.0,
 
-        # Selection on the whole objective. Selecting on price+gradient
-        # stopped while the curvature term was still improving and left
-        # its error 2.6x above what the same run reached later.
+        # on price+gradient alone, training stops while curvature is still
+        # improving and leaves its error 2.6x higher
         selection_metric=TOTAL,
 
         early_stopping=True,
@@ -246,6 +223,7 @@ class ExperimentConfig:
     data: DataConfig = field(default_factory=DataConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     basket: BasketConfig = field(default_factory=BasketConfig)
+    heston: HestonConfig = field(default_factory=HestonConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     training: TrainingConfig = field(default_factory=_training_config)
@@ -276,13 +254,7 @@ class ExperimentConfig:
             )
 
     def to_dict(self, problem=None) -> dict:
-        """
-        Everything a run needs to be reproducible, for config.json.
-
-        `problem` contributes the feature layout, the sampled domain and
-        the calibration outcome, which are derived from the config rather
-        than stated in it.
-        """
+        """Everything a run needs to be reproducible, for config.json."""
 
         data = asdict(self)
 

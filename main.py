@@ -46,8 +46,6 @@ def main(config: ExperimentConfig = None):
 
     market_data, calibration = market
 
-    # every later stage asks this object what it is pricing, so none of
-    # them branches on the configured model
     problem = build_problem(
         config.data.pricing_model,
         config=config,

@@ -1,4 +1,5 @@
-"""A piecewise-linear activation has a second derivative of zero almost
+"""
+A piecewise-linear activation has a second derivative of zero almost
 everywhere, so the HVP term is identically zero and nothing raises.
 """
 
@@ -94,7 +95,6 @@ def test_piecewise_linear_activations_give_zero_second_order():
 
 
 def test_piecewise_linear_first_order_is_unaffected():
-    # order 1 keeps working, which is why this fails silently rather than loudly
     for name, activation in PIECEWISE_LINEAR.items():
         gradient = _surrogate(activation).predict_gradient(X)
 
@@ -124,7 +124,6 @@ def test_hvp_matches_hessian_product_for_smooth_activations():
 
 
 def test_relu_hessian_loss_cannot_improve():
-    # predictions are identically zero, so the term is a constant
     history = _fit(jax.nn.relu)
 
     hessian_losses = history["train_hessian_loss"]

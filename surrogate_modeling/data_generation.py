@@ -15,21 +15,7 @@ def create_sobolev_dataset(
     label_seed: int = 0,
     shared_label_keys: bool = False,
 ) -> SobolevDataset:
-    """
-    Monte-Carlo-labelled Sobolev training set for any `PricingProblem`.
-
-    Prices, gradients and HVPs all come from differentiating through the
-    problem's Monte Carlo pricer; a closed form, where one exists, is used
-    only for calibration and validation, never for training labels.
-
-    `seed` draws the sampling points and the probe directions; `label_seed`
-    drives the Monte Carlo. They are separate so a run can hold the design
-    fixed and re-draw only the labels, which is how the label noise was
-    measured.
-
-    The domain, the feature layout and the pricer all come from `problem`,
-    so this function contains nothing specific to any one model.
-    """
+    """Monte-Carlo-labelled Sobolev training set for any `PricingProblem`."""
 
     key = jax.random.PRNGKey(seed)
     x_key, v_key = jax.random.split(key)
@@ -40,8 +26,6 @@ def create_sobolev_dataset(
         jax.random.uniform(x_key, shape=(n_samples, n_features))
     )
 
-    # one random unit probe direction per sample (Hutchinson-style HVP
-    # probing), rather than one fixed direction reused for every sample
     V_raw = jax.random.normal(v_key, shape=(n_samples, n_features))
     V = V_raw / jnp.linalg.norm(V_raw, axis=1, keepdims=True)
 

@@ -72,21 +72,13 @@ def _setup():
 
     points = problem.reference_points(n_points=N_POINTS, seed=7)
 
-    # the closed form is the exact price, so it isolates the Monte Carlo
-    # error from everything else
     reference = jnp.array([float(problem.analytic_price(x)) for x in points])
 
     return points, reference
 
 
 def test_shared_keys_make_the_label_errors_coherent():
-    """
-    Documents the failure mode the default avoids.
-
-    With one key for the whole dataset every label is priced from the same
-    draw, so their errors move together. That is exactly why the
-    dataset-wide error does not average out.
-    """
+    """Documents the failure mode the default avoids."""
 
     points, reference = _setup()
 
@@ -107,9 +99,9 @@ def test_shared_keys_make_the_label_errors_coherent():
 
 def test_independent_keys_let_the_dataset_wide_error_average_out():
     """
-    The property that matters for training: across base seeds, the mean
-    label error of an independently keyed dataset is far tighter than a
-    shared-key one, because the individual errors cancel instead of adding.
+    The property that matters for training: across base seeds, the mean label
+    error of an independently keyed dataset is far tighter than a shared-key
+    one, because the individual errors cancel instead of adding.
     """
 
     points, reference = _setup()
@@ -122,15 +114,14 @@ def test_independent_keys_let_the_dataset_wide_error_average_out():
     shared_spread = spread(shared=True)
     independent_spread = spread(shared=False)
 
-    # sqrt(N_POINTS) is the ideal; anything above 2x is already decisive
     assert shared_spread > 2.0 * independent_spread
 
 
 def test_per_label_accuracy_is_the_same_in_both_modes():
     """
     Independent keys are not "more accurate per label" - one label is one
-    label. Only the way the errors combine changes, which is what makes
-    this a bias question rather than a variance one.
+    label. Only the way the errors combine changes, which is what makes this a
+    bias question rather than a variance one.
     """
 
     points, reference = _setup()
@@ -149,8 +140,8 @@ def test_default_configuration_uses_independent_keys():
 
 def test_a_default_dataset_is_unbiased_against_the_closed_form():
     """
-    End to end: the labels a default run produces sit on the analytic price
-    up to the payoff-smoothing offset, which is small and negative.
+    End to end: the labels a default run produces sit on the analytic price up
+    to the payoff-smoothing offset, which is small and negative.
     """
 
     points, reference = _setup()

@@ -7,15 +7,7 @@ from typing import Callable
 
 
 class SurrogateModel(eqx.Module):
-    """
-    Normalisierender Wrapper um ein Preis-Netz.
-
-    Ableitungen werden bezüglich der rohen Eingabe x zurückgegeben, da
-    JAX die Kettenregel durch die affine Normalisierung automatisch zieht.
-
-    `model` maps one sample of shape (d,) to a scalar. The statistics
-    default to the identity, which turns normalization off.
-    """
+    """Normalisierender Wrapper um ein Preis-Netz."""
 
     model: Callable
     x_mean: jnp.ndarray
@@ -40,14 +32,11 @@ class SurrogateModel(eqx.Module):
 
         self.model = model
         self.x_mean = jnp.asarray(x_mean)
-        # floor to avoid division by (near-)zero for a degenerate/constant feature column
         self.x_std = jnp.maximum(jnp.asarray(x_std), 1e-6)
         self.y_mean = jnp.asarray(y_mean)
         self.y_std = jnp.maximum(jnp.asarray(y_std), 1e-6)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        # these are fixed dataset stats, not learned params - stop_gradient
-        # keeps Adam from slowly drifting them away from their real values
         x_mean = jax.lax.stop_gradient(self.x_mean)
         x_std = jax.lax.stop_gradient(self.x_std)
         y_mean = jax.lax.stop_gradient(self.y_mean)
@@ -84,7 +73,6 @@ class SurrogateModel(eqx.Module):
 
     def predict_hvp(self, x: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         """H @ v, ohne die volle Hessian zu instanziieren."""
-        # forward-over-reverse: jvp of the gradient function is exactly H @ v
         _, hvp_val = jax.jvp(jax.grad(self.predict_price), (x,), (v,))
         return hvp_val
 

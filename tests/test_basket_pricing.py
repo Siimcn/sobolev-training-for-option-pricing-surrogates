@@ -53,6 +53,7 @@ def _heston_model_and_params():
         theta=0.04,
         xi=0.3,
         rho=-0.7,
+        nu0=0.04,
         weights=jnp.array([0.5, 0.5]),
         corr=jnp.array([[1.0, 0.5], [0.5, 1.0]]),
     )
@@ -62,8 +63,10 @@ def _heston_model_and_params():
 
 def _price(model, params, payoff, s0, key,
            on_path=False, num_paths=80_000, num_steps=50):
-    """Discounted basket price. relu keeps the payoff unbiased for the
-    analytic comparisons; basket_mc uses a smooth one for the greeks."""
+    """
+    Discounted basket price. relu keeps the payoff unbiased for the analytic
+    comparisons; basket_mc uses a smooth one for the greeks.
+    """
 
     pricer = MonteCarloPricer(
         model,
@@ -127,7 +130,6 @@ def test_perfectly_correlated_basket_matches_vanilla():
 
 
 def test_correlation_increases_basket_call():
-    # less diversification means more basket variance, so a dearer call
     model = _bs_model()
     key = jax.random.PRNGKey(7)
 
@@ -154,10 +156,9 @@ def test_basket_martingale():
 
 
 def test_heston_basket_runs():
-    # Euler only: Milstein is approximate here because of the spot-vol coupling
     model, params = _heston_model_and_params()
 
-    s0 = jnp.array([100.0, 100.0, 0.04, 0.04])   # [S1, S2, nu1, nu2]
+    s0 = jnp.array([100.0, 100.0, 0.04, 0.04])
 
     price = _price(model, params, EuropeanCall(strike=K, smooth_fn=relu),
                    s0, jax.random.PRNGKey(2), num_paths=50_000, num_steps=100)
@@ -178,7 +179,6 @@ def test_heston_basket_martingale():
 
 
 def test_asian_basket_below_european():
-    # averaging over time lowers the variance the option sees
     model = _bs_model()
     params = _bs_params([0.2, 0.3])
     s0 = jnp.array([100.0, 100.0])
@@ -194,8 +194,6 @@ def test_asian_basket_below_european():
 
 
 def test_asian_basket_put_call_parity():
-    # C - P = e^{-rT}(E[A] - K), independent of vol and correlation.
-    # AsianPayoff averages path[1:], so the fixings are t_i = i*dt, i = 1..n.
     model = _bs_model()
     params = _bs_params([0.2, 0.3])
     s0 = jnp.array([100.0, 100.0])
@@ -234,7 +232,6 @@ def test_basket_greeks_match_finite_differences():
 
 
 def test_basket_delta_bounds():
-    # a basket call cannot react to one asset more strongly than its weight
     model = _bs_model()
     params = _bs_params([0.2, 0.3])
 

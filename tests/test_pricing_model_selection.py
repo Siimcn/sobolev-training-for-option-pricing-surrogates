@@ -81,10 +81,7 @@ def _dataset(pricing_model, basket=None, n_samples=3, sobolev_order=2, min_matur
     )
 
 
-# ------------------------------------------------------------------ config
-
 def test_configured_default_is_a_known_model():
-    # which model is the default is a config choice, not a contract
     assert ExperimentConfig().data.pricing_model in available_problems()
 
 
@@ -125,18 +122,18 @@ def test_weights_default_to_equal_shares():
 
 def test_unknown_pricing_model_is_rejected():
     try:
-        ExperimentConfig(data=DataConfig(pricing_model="heston"))
+        ExperimentConfig(data=DataConfig(pricing_model="sabr"))
     except ValueError as e:
-        assert "heston" in str(e)
+        assert "sabr" in str(e)
     else:
         assert False, "an unknown pricing model should raise"
 
 
 def test_unknown_pricing_model_rejected_by_the_registry():
     try:
-        build_problem("heston", config=None, market_data=None, calibration=None)
+        build_problem("sabr", config=None, market_data=None, calibration=None)
     except ValueError as e:
-        assert "heston" in str(e)
+        assert "sabr" in str(e)
     else:
         assert False, "an unknown pricing model should raise"
 
@@ -154,12 +151,7 @@ def test_network_input_width_is_derived_by_default():
     assert ExperimentConfig().network.in_size is None
 
 
-# ------------------------------------------- feature layout is never assumed
-
 def test_baseline_point_lies_inside_the_training_domain():
-    # regression: the surface plots used a fixed [spot, K, T, sigma, r]
-    # anchor, so a basket run was evaluated at S3 = 0.50, K = 0.29 and a
-    # maturity below the floor - all far outside where it was trained
     for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
         problem = _problem(model, min_maturity=0.3)
 
@@ -193,8 +185,6 @@ def test_surface_specs_stay_inside_the_sampled_domain():
 
 
 def test_feature_bounds_match_the_drawn_samples():
-    # the plot ranges are read off sample_features, so they cannot drift
-    # away from the domain the labels were actually drawn from
     for model in (BLACK_SCHOLES, BASKET_BLACK_SCHOLES):
         problem = _problem(model)
 
@@ -222,7 +212,6 @@ def test_only_the_basket_declares_exchangeable_features():
     assert _problem(BLACK_SCHOLES).exchangeable_features == ()
     assert _problem(BASKET_BLACK_SCHOLES).exchangeable_features == (0, 1, 2)
 
-    # unequal weights break exchangeability, so nothing may be permuted
     uneven = _problem(
         BASKET_BLACK_SCHOLES,
         basket=BasketConfig(n_assets=3, weights=(0.5, 0.3, 0.2), symmetrize=False),
@@ -231,10 +220,7 @@ def test_only_the_basket_declares_exchangeable_features():
     assert uneven.exchangeable_features == ()
 
 
-# ------------------------------------------------------------ basket pricer
-
 def test_single_asset_basket_matches_the_analytic_call():
-    # a one-asset basket is a vanilla call, so the closed form applies
     price_fn = make_basket_feature_price(
         weights=jnp.array([1.0]),
         corr=uniform_correlation(1, 0.0),
@@ -272,17 +258,13 @@ def test_basket_price_is_differentiable_twice():
     assert bool(jnp.all(jnp.isfinite(gradient)))
     assert bool(jnp.all(jnp.isfinite(hvp)))
 
-    # every asset delta is positive and bounded by its weight
     assert bool(jnp.all(gradient[:3] > 0.0))
     assert bool(jnp.all(gradient[:3] < 1.0 / 3.0))
 
-    # dPrice/dK is negative for a call
     assert float(gradient[3]) < 0.0
 
 
 def test_european_payoff_is_priced_from_an_exact_terminal_draw():
-    # a terminal-only payoff needs no time stepping, so num_steps must not
-    # change the answer at all
     def priced(num_steps):
         return float(
             make_basket_feature_price(
@@ -313,13 +295,10 @@ def test_path_dependent_payoff_still_uses_the_stepping_scheme():
             )(jnp.array([100.0, 100.0, 100.0, 100.0, 1.0]), jax.random.PRNGKey(0))
         )
 
-    # an average over the path depends on how finely the path is sampled
     assert priced(5) != priced(50)
 
 
 def test_exact_sampling_is_unbiased_against_the_closed_form():
-    # a one-asset basket is a vanilla call; averaging over independent keys
-    # must land on the closed form up to the smoothing offset
     price_fn = make_basket_feature_price(
         weights=jnp.array([1.0]),
         corr=uniform_correlation(1, 0.0),
@@ -360,7 +339,6 @@ def test_exact_sampling_stays_twice_differentiable():
     assert bool(jnp.all(jnp.isfinite(gradient)))
     assert bool(jnp.all(jnp.isfinite(hvp)))
 
-    # the shape constraints the true price satisfies
     assert bool(jnp.all((gradient[:3] > 0.0) & (gradient[:3] < 1.0 / 3.0)))
     assert float(gradient[3]) < 0.0
     assert float(gradient[4]) > 0.0
@@ -374,8 +352,6 @@ def test_uniform_correlation_matrix():
     assert float(corr[0, 1]) == 0.5
     assert bool(jnp.all(corr == corr.T))
 
-
-# ----------------------------------------------------------------- dataset
 
 def test_black_scholes_dataset_shapes():
     dataset = _dataset(BLACK_SCHOLES, n_samples=3)
@@ -412,7 +388,6 @@ def test_basket_domain_respects_the_market_ranges():
     assert bool(jnp.all(strikes >= 80.0)) and bool(jnp.all(strikes <= 120.0))
     assert bool(jnp.all(maturities >= 0.25)) and bool(jnp.all(maturities <= 1.0))
 
-    # all three spot columns are drawn from the same range
     assert bool(jnp.all(dataset.X[:, :3] > 0.0))
 
 
@@ -423,12 +398,7 @@ def test_sobolev_order_one_skips_the_hvps():
     assert dataset.gradients is not None
 
 
-# ------------------------------------------------------------- diagnostics
-
 def test_preview_paths_read_the_right_feature_layout():
-    # regression: the single-asset generator reads maturity from x[2] and
-    # sigma from x[3], which for a basket are S_3 and K - that produced
-    # paths of order 1e151 and negative prices
     for model, x, horizon in [
         (
             BLACK_SCHOLES,
@@ -476,11 +446,9 @@ def test_exposure_paths_carry_the_problems_own_feature_layout():
 
         assert bool(jnp.all(strike_column == 110.0)), model
 
-        # time to maturity runs down to zero as the exposure date advances
         assert abs(float(maturity_column[0, 0]) - 1.0) < 1e-9
         assert float(maturity_column[0, -1]) < 1e-6
 
-        # the underlying is simulated, so it is not constant
         assert float(jnp.std(features[:, -1, 0])) > 0.0
 
 
@@ -521,8 +489,6 @@ def test_reference_price_uses_the_key_it_is_given():
     a = float(problem.reference_price(x, jax.random.PRNGKey(1)))
     b = float(problem.reference_price(x, jax.random.PRNGKey(2)))
 
-    # different random numbers, so a different estimate - otherwise the
-    # "independent" benchmark would just be the training labels again
     assert a != b
     assert abs(a - b) / a < 0.1
 
@@ -540,8 +506,6 @@ def test_reference_points_are_in_domain():
         assert bool(jnp.all(points <= high + 1e-9)), model
 
 
-# --------------------------------------------------------- symmetrization
-
 def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
     w = jnp.full(n, 1.0 / n) if weights is None else jnp.asarray(weights)
 
@@ -555,12 +519,10 @@ def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
         symmetrize=symmetrize,
     )
 
-    # the symmetry tests are about the estimator at one fixed draw
     return lambda x: priced(x, jax.random.PRNGKey(0))
 
 
 def test_raw_estimator_is_not_permutation_invariant():
-    # documents why symmetrize exists: asset i draws Brownian column i
     price_fn = _basket_pricer(symmetrize=False)
 
     values = [
@@ -618,11 +580,7 @@ def test_symmetrize_rejects_a_non_exchangeable_basket():
         assert False, "unequal weights with symmetrize should raise"
 
 
-# -------------------------------------------------------------- maturities
-
 def test_min_maturity_floors_the_sampled_maturities():
-    # asserted on the domain rather than on a draw: with few samples the
-    # unfloored minimum may land above the floor by chance
     floored = _problem(BASKET_BLACK_SCHOLES, min_maturity=0.4)
     unfloored = _problem(BASKET_BLACK_SCHOLES)
 

@@ -16,21 +16,7 @@ def run_xva_analysis(
     seed: int = 0,
     min_maturity: float = 0.0,
 ) -> Optional[Dict[str, float]]:
-    """
-    Exposure profiles and XVA along a simulated future.
-
-    The future states and the surrogate's inputs along them come from
-    `problem.exposure_paths`, so nothing here assumes a feature layout.
-    A problem that cannot produce them returns None and the stage is
-    skipped; one without a closed form is priced by the surrogate alone
-    and reported without the reference column, rather than being compared
-    against a formula that does not apply to it.
-
-    `min_maturity` is the training-domain floor. The profile stops there
-    instead of running the remaining maturity to zero, which used to push
-    the surrogate outside the region it was fitted on and produced
-    negative values - and hence a non-zero DVA on a long call.
-    """
+    """Exposure profiles and XVA along a simulated future."""
 
     strikes = problem.exposure_strikes()
 
@@ -69,8 +55,6 @@ def run_xva_analysis(
 
     risk_engine = RiskEngine()
 
-    # a deep ITM call is near-linear in S, so a single fixed K would hide
-    # Greeks errors that ATM catches
     print("\n===== XVA VALIDATION (across moneyness) =====\n")
 
     if reference_value_fn is None:
@@ -136,7 +120,6 @@ def run_xva_analysis(
 
     xva = primary["xva"]
 
-    # feature 0 is the primary underlying, by the PricingProblem convention
     Visualizer.plot_mc_paths(
         time_grid,
         primary["features"][:, :, 0],

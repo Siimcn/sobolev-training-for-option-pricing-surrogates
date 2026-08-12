@@ -74,8 +74,6 @@ class _Surrogate:
         return jax.vmap(jax.grad(lambda x: jnp.asarray(self.fn(x), float)))(X)
 
 
-# ----------------------------------------------- a problem is four methods
-
 class ToyProblem(PricingProblem):
     """Everything a new model must supply, and nothing more."""
 
@@ -89,7 +87,6 @@ class ToyProblem(PricingProblem):
         return u.at[:, 0].set(u[:, 0] * 10.0).at[:, 1].set(1.0 + 2.0 * u[:, 1])
 
     def label_price_fn(self):
-        # deterministic, so the key is accepted and ignored
         return lambda x, key: x[0] * x[1]
 
 
@@ -101,8 +98,6 @@ def test_a_minimal_problem_needs_only_the_four_required_members():
     assert bool(jnp.allclose(low, jnp.array([0.0, 1.0])))
     assert bool(jnp.allclose(high, jnp.array([10.0, 3.0])))
 
-    # the default anchor is the middle of the domain, so it is in-domain
-    # without the author having to say where that is
     assert bool(jnp.allclose(problem.baseline_features(), jnp.array([5.0, 2.0])))
 
     specs = problem.surface_specs()
@@ -111,7 +106,6 @@ def test_a_minimal_problem_needs_only_the_four_required_members():
     assert (specs[0].x_index, specs[0].y_index) == (0, 1)
     assert specs[0].y_range == (1.0, 3.0)
 
-    # unimplemented stages report themselves as unavailable
     assert problem.underlying_paths(problem.baseline_features()) is None
     assert (
         problem.reference_price(problem.baseline_features(), jax.random.PRNGKey(0))
@@ -134,7 +128,6 @@ def test_a_minimal_problem_can_be_trained_on():
     assert dataset.gradients.shape == (5, 2)
     assert dataset.hvps.shape == (5, 2)
 
-    # price is a*b, so d/da = b and d/db = a
     assert bool(jnp.allclose(dataset.gradients[:, 0], dataset.X[:, 1]))
     assert bool(jnp.allclose(dataset.gradients[:, 1], dataset.X[:, 0]))
 
@@ -172,8 +165,6 @@ def test_registering_a_duplicate_name_is_refused():
         assert False, "silently replacing a registered problem should raise"
 
 
-# ------------------------------------------------------------- validation
-
 def test_validation_reports_a_perfect_surrogate_as_accurate():
     problem = _problem(BLACK_SCHOLES)
 
@@ -181,7 +172,6 @@ def test_validation_reports_a_perfect_surrogate_as_accurate():
 
     summary = run_reference_validation(surrogate, problem, n_points=32)
 
-    # the closed form should sit as close to fresh MC as MC does to itself
     assert summary["surrogate_median_relative_pct"] < 5.0
     assert abs(summary["surrogate_bias"]) < 1.0
     assert "reference_vs_analytic_bias" in summary
@@ -197,8 +187,6 @@ def test_validation_runs_for_a_model_without_a_closed_form():
 
     summary = run_reference_validation(surrogate, problem, n_points=16)
 
-    # a basket has no analytic price, so that column is absent - but the
-    # independent Monte Carlo benchmark still runs
     assert "surrogate_bias" in summary
     assert "reference_vs_analytic_bias" not in summary
     assert summary["surrogate_median_relative_pct"] < 25.0
@@ -213,8 +201,6 @@ def test_validation_catches_an_arbitrage_violating_surrogate():
         n_points=16,
     )
 
-    # a call worth more than its underlying is impossible, and 1e6 is far
-    # outside any Monte Carlo tolerance
     assert summary["arbitrage_violation_pct"] == 100.0
     assert summary["arbitrage_worst_breach"] > 0.0
 
@@ -247,8 +233,6 @@ def test_validation_says_so_when_no_benchmark_exists(capsys=None):
         _Surrogate(lambda x: x[0] * x[1]), ToyProblem(), n_points=3
     )
 
-    # a toy problem has no reference pricer, no bounds and no symmetry:
-    # the stage reports that rather than passing silently
     assert summary == {}
 
 
