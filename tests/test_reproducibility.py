@@ -20,7 +20,7 @@ import pytest
 
 jax.config.update("jax_enable_x64", True)
 
-from kalibrierung.market_data import MarketData
+from calibration.market_data import MarketData
 from pipeline.config import (
     BasketConfig,
     DataConfig,

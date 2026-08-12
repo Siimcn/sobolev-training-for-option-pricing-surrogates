@@ -9,15 +9,15 @@ import jax.numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
-from kalibrierung.market_data import MarketData
-from marktsimulation.payoff import (
+from calibration.market_data import MarketData
+from market_simulation.payoff import (
     available_payoffs,
     build_payoff,
     payoff_spec,
     register_payoff,
     PayoffSpec,
 )
-from marktsimulation.pricing_model import BlackScholesParams
+from market_simulation.pricing_model import BlackScholesParams
 from pipeline.config import (
     BASKET_BLACK_SCHOLES,
     BLACK_SCHOLES,
@@ -168,7 +168,7 @@ def test_an_unknown_payoff_is_rejected_by_the_config():
 
 
 def test_a_new_payoff_needs_only_a_registration():
-    from marktsimulation.payoff import EuropeanPayoff, sigmoid_smooth
+    from market_simulation.payoff import EuropeanPayoff, sigmoid_smooth
 
     def straddle(strike, smooth_fn=sigmoid_smooth, smooth_w=0.05):
         return EuropeanPayoff(

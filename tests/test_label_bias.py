@@ -8,11 +8,11 @@ import jax.numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
-from kalibrierung.market_data import MarketData
-from marktsimulation.black_scholes import black_scholes_price_single
+from calibration.market_data import MarketData
+from market_simulation.black_scholes import black_scholes_price_single
 from conftest import bs_mc_feature_price
-from marktsimulation.pricing_model import BlackScholesParams
-from marktsimulation.sobolev_labels import label_keys
+from market_simulation.pricing_model import BlackScholesParams
+from market_simulation.sobolev_labels import label_keys
 from pipeline.config import (
     BLACK_SCHOLES,
     DataConfig,

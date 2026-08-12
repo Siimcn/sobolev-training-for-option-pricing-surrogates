@@ -9,13 +9,13 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from marktsimulation.basket_mc import uniform_correlation
-from marktsimulation.param_validation import (
+from market_simulation.basket_mc import uniform_correlation
+from market_simulation.param_validation import (
     FIELD_RULES,
     ValidationError,
     validate_params,
 )
-from marktsimulation.pricing_model import (
+from market_simulation.pricing_model import (
     BachelierParams,
     BasketBachelierParams,
     BasketBlackScholesParams,

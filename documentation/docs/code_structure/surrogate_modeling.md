@@ -105,7 +105,7 @@ The critical part is that **nothing raises an error**. First-order training keep
 
 The defaults in `architectures.py` are smooth for this reason. The behaviour is pinned down in `tests/test_second_order_sobolev.py`, which asserts both that piecewise-linear activations produce a zero Hessian and that the HVP loss cannot improve during training.
 
-The same applies to `jax.lax.stop_gradient` in the forward pass, which zeroes the first and second derivatives alike, and to the payoff inside the Monte-Carlo pricer: the smoothing in `marktsimulation/payoff.py` exists so that the HVP **labels** are not zero for the same reason.
+The same applies to `jax.lax.stop_gradient` in the forward pass, which zeroes the first and second derivatives alike, and to the payoff inside the Monte-Carlo pricer: the smoothing in `market_simulation/payoff.py` exists so that the HVP **labels** are not zero for the same reason.
 
 ---
 

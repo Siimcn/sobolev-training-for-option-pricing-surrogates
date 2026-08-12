@@ -1,6 +1,6 @@
 import jax
 
-from risk_visualisierung.visualizer import Visualizer
+from risk_visualization.visualizer import Visualizer
 
 from surrogate_modeling.pricing_problem import build_problem
 

@@ -2,7 +2,7 @@ from dataclasses import asdict, dataclass, field
 
 from typing import Optional, Tuple
 
-from marktsimulation.payoff import available_payoffs
+from market_simulation.payoff import available_payoffs
 
 # importing the package registers every problem; see its __init__
 import surrogate_modeling.problems  # noqa: F401
@@ -61,7 +61,7 @@ class MarketConfig:
 
 @dataclass(frozen=True)
 class PayoffConfig:
-    """What is being priced; see marktsimulation.payoff.available_payoffs()."""
+    """What is being priced; see market_simulation.payoff.available_payoffs()."""
 
     name: str = "european_call"
 

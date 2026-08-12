@@ -1,7 +1,7 @@
 from typing import Optional, Tuple
 
-from kalibrierung.market_data import MarketData
-from kalibrierung.market_data_loader import MarketDataLoader
+from calibration.market_data import MarketData
+from calibration.market_data_loader import MarketDataLoader
 
 from surrogate_modeling.pricing_problem import CalibrationResult, calibrate_problem
 

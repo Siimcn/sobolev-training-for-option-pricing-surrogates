@@ -31,7 +31,7 @@ def _json_safe(value):
 
 
 class LoggerWriter:
-    """Tee für sys.stdout: schreibt in Konsole und Logdatei."""
+    """Tee for sys.stdout: writes to the console and to the log file."""
 
     def __init__(self, filename, echo=True):
         self.terminal = sys.stdout

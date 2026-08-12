@@ -1,8 +1,8 @@
 from typing import Dict, List, Optional
 
-from kalibrierung.market_data import MarketData
+from calibration.market_data import MarketData
 
-from risk_visualisierung.visualizer import Visualizer
+from risk_visualization.visualizer import Visualizer
 
 from surrogate_modeling.dataset import SobolevDataset
 from surrogate_modeling.pricing_problem import CalibrationResult, PricingProblem

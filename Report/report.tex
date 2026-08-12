@@ -98,7 +98,7 @@ Wir haben das Projekt in Python umgesetzt. Als Grundlage nutzen wir JAX für die
 
 \section{Source Code}
 
-Der Code ist in mehrere Pakete aufgeteilt. \texttt{kalibrierung} enthält das Laden der Marktdaten und die Kalibrierung, \texttt{marktsimulation} die Preisfunktionen und \texttt{surrogate\_modeling} das Sobolev-Training. Die Risikoberechnung liegt in \texttt{risk\_visualisierung}, und \texttt{pipeline} steuert den Ablauf und enthält die gesamte Konfiguration.
+Der Code ist in mehrere Pakete aufgeteilt. \texttt{calibration} enthält das Laden der Marktdaten und die Kalibrierung, \texttt{market\_simulation} die Preisfunktionen und \texttt{surrogate\_modeling} das Sobolev-Training. Die Risikoberechnung liegt in \texttt{risk\_visualization}, und \texttt{pipeline} steuert den Ablauf und enthält die gesamte Konfiguration.
 
 Die zentrale Einstiegsstelle ist \texttt{main.py}. Dort werden die Schritte nacheinander ausgeführt: Marktdaten laden, kalibrieren, Dataset erzeugen, Surrogat trainieren und Ergebnisse auswerten. Das hält den Ablauf übersichtlich und macht Debugging einfacher.
 
@@ -117,7 +117,7 @@ Die eigentliche Optimierung übernimmt \texttt{Calibrator}. Dabei werden die Mod
 Die Kalibrierung ist nicht als einzelner Schritt gedacht, sondern als Startpunkt für den Rest der Pipeline. Erst danach werden die Sobolev-Daten erzeugt, das Surrogat trainiert und die Risikoanalyse ausgeführt. So bauen alle Teile auf denselben Modellparametern auf.
 
 \section{Visualisierung und Reporting}
-Das Modul \texttt{risk\_visualisierung} ist in die drei Komponenten \texttt{xva\_analysis}, \texttt{riskengine} und \texttt{visualizer} unterteilt 
+Das Modul \texttt{risk\_visualization} ist in die drei Komponenten \texttt{xva\_analysis}, \texttt{riskengine} und \texttt{visualizer} unterteilt 
 und verbindet Surrogat-Evaluation mit Monte-Carlo-Simulationen und XVA-Berechnungen.
 
 Die Visualisierung der Ergebnisse und Trainingsverläufe wird durch die Klasse \textbf{Visualizer} übernommen. 

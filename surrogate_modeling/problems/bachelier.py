@@ -2,9 +2,9 @@ import jax
 import jax.numpy as jnp
 import optimistix as optx
 from typing import Tuple
-from kalibrierung.calibrator import Calibrator
-from marktsimulation.basket_mc import is_exchangeable, uniform_correlation
-from marktsimulation.bachelier import (
+from calibration.calibrator import Calibrator
+from market_simulation.basket_mc import is_exchangeable, uniform_correlation
+from market_simulation.bachelier import (
     bachelier_forward,
     bachelier_price,
     bachelier_price_single,
@@ -12,15 +12,15 @@ from marktsimulation.bachelier import (
     basket_bachelier_spot_price,
     basket_normal_volatility,
 )
-from marktsimulation.mc_pricing import make_feature_price, mc_price
-from marktsimulation.payoff import payoff_spec
-from marktsimulation.pricing_model import (
+from market_simulation.mc_pricing import make_feature_price, mc_price
+from market_simulation.payoff import payoff_spec
+from market_simulation.pricing_model import (
     BachelierModel,
     BachelierParams,
     BasketBachelierModel,
     BasketBachelierParams,
 )
-from marktsimulation.timesteppingscheme import EulerMaruyama
+from market_simulation.timesteppingscheme import EulerMaruyama
 from surrogate_modeling.domain import (
     exposure_time_grid,
     maturity_range,

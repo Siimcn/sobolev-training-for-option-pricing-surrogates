@@ -9,8 +9,8 @@ import jax.numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
-from kalibrierung.market_data import MarketData
-from marktsimulation.bachelier import (
+from calibration.market_data import MarketData
+from market_simulation.bachelier import (
     bachelier_delta,
     bachelier_forward,
     bachelier_gamma,
@@ -23,17 +23,17 @@ from marktsimulation.bachelier import (
     basket_bachelier_spot_price,
     basket_normal_volatility,
 )
-from marktsimulation.basket_mc import uniform_correlation
-from marktsimulation.mc_pricing import make_feature_price, mc_price
-from marktsimulation.monte_carlo_pricer import MonteCarloPricer
-from marktsimulation.payoff import EuropeanCall, sigmoid_smooth
-from marktsimulation.pricing_model import (
+from market_simulation.basket_mc import uniform_correlation
+from market_simulation.mc_pricing import make_feature_price, mc_price
+from market_simulation.monte_carlo_pricer import MonteCarloPricer
+from market_simulation.payoff import EuropeanCall, sigmoid_smooth
+from market_simulation.pricing_model import (
     BachelierModel,
     BachelierParams,
     BasketBachelierModel,
     BasketBachelierParams,
 )
-from marktsimulation.timesteppingscheme import EulerMaruyama
+from market_simulation.timesteppingscheme import EulerMaruyama
 from pipeline.config import (
     BasketConfig,
     DataConfig,

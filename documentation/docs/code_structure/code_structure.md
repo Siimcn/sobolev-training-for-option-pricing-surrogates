@@ -44,10 +44,10 @@ The repository is divided into several modules, each with a clearly defined resp
 | Module | Responsibility |
 |---------|----------------|
 | `pipeline` | Runs the experiment end to end and holds all configuration. |
-| `marktsimulation` | Generates market and training data. |
+| `market_simulation` | Generates market and training data. |
 | `surrogate_modeling` | Implements the neural network, the training process and the pricing problems. |
-| `kalibrierung` | Performs parameter calibration using market data. |
-| `risk_visualisierung` | Visualizes pricing results and risk analyses. |
+| `calibration` | Performs parameter calibration using market data. |
+| `risk_visualization` | Visualizes pricing results and risk analyses. |
 | `utils` | Provides helper functions shared across multiple modules. |
 
 Each module can be developed independently while interacting through clearly defined interfaces.
@@ -57,10 +57,10 @@ The dependency direction is strictly one way, and there are no cycles:
 ```text
 main.py
    └── pipeline
-         ├── kalibrierung
-         ├── marktsimulation
-         ├── surrogate_modeling ──> kalibrierung, marktsimulation
-         └── risk_visualisierung ──> surrogate_modeling
+         ├── calibration
+         ├── market_simulation
+         ├── surrogate_modeling ──> calibration, market_simulation
+         └── risk_visualization ──> surrogate_modeling
 ```
 
 `pipeline` is the only module that knows the order of the experiment. It never

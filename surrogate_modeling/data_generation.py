@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from marktsimulation.sobolev_labels import create_sobolev_labels, label_keys
+from market_simulation.sobolev_labels import create_sobolev_labels, label_keys
 
 from surrogate_modeling.dataset import SobolevDataset
 from surrogate_modeling.pricing_problem import PricingProblem

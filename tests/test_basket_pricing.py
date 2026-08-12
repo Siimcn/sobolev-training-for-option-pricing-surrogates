@@ -8,17 +8,17 @@ import jax.numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
-from marktsimulation.pricing_model import (
+from market_simulation.pricing_model import (
     BasketBlackScholesModel,
     BasketBlackScholesParams,
     BasketHestonModel,
     BasketHestonParams,
 )
-from marktsimulation.timesteppingscheme import EulerMaruyama
-from marktsimulation.payoff import EuropeanCall, AsianCall, AsianPut, relu
-from marktsimulation.monte_carlo_pricer import MonteCarloPricer
-from marktsimulation.basket_mc import basket_price, basket_greeks
-from marktsimulation.black_scholes import black_scholes_price_single
+from market_simulation.timesteppingscheme import EulerMaruyama
+from market_simulation.payoff import EuropeanCall, AsianCall, AsianPut, relu
+from market_simulation.monte_carlo_pricer import MonteCarloPricer
+from market_simulation.basket_mc import basket_price, basket_greeks
+from market_simulation.black_scholes import black_scholes_price_single
 
 R = 0.05
 T = 1.0

@@ -41,7 +41,7 @@ mathematics.
 
 Supervisors and developers picking the project up without having written it. Familiarity
 with option pricing helps but the documentation defines its terms; familiarity with JAX
-is assumed only in `marktsimulation` and `surrogate_modeling`.
+is assumed only in `market_simulation` and `surrogate_modeling`.
 
 ## Supported models
 
@@ -145,7 +145,7 @@ timestamped directory under `results/`.
 │   └── market.py  data.py  model.py  training.py
 │       evaluation.py  reporting.py  risk.py
 │
-├── marktsimulation/               the mathematics: models, payoffs, Monte Carlo
+├── market_simulation/               the mathematics: models, payoffs, Monte Carlo
 │   ├── pricing_model.py           dynamics for all six models
 │   ├── mc_pricing.py              THE Monte Carlo pricer - all six go through it
 │   ├── black_scholes.py  bachelier.py  heston.py      closed forms
@@ -158,8 +158,8 @@ timestamped directory under `results/`.
 │   ├── sobolev_trainer.py         the training loop
 │   ├── losses.py  metrics.py  validation.py  domain.py
 │
-├── kalibrierung/                  market data and calibration
-├── risk_visualisierung/           exposure, XVA, plots
+├── calibration/                  market data and calibration
+├── risk_visualization/           exposure, XVA, plots
 ├── tests/                         278 tests
 ├── documentation/                 mkdocs site (docs/ is source, site/ is generated)
 ├── results/                       GENERATED - one directory per run
@@ -233,7 +233,7 @@ CI (`.github/workflows/ci.yml`) runs all four on push and pull request.
 |---|---|
 | what a run does | `pipeline/config.py` |
 | add a pricing model | a new module in `surrogate_modeling/problems/` + its import in `__init__.py` |
-| add a payoff | `marktsimulation/payoff.py`, then `register_payoff` |
+| add a payoff | `market_simulation/payoff.py`, then `register_payoff` |
 | add a network architecture | `surrogate_modeling/architectures.py`, then `register_architecture` |
 | the training objective | `surrogate_modeling/losses.py`, `sobolev_trainer.py` |
 | documentation | `documentation/docs/` — never `documentation/site/`, which is generated |
@@ -241,7 +241,7 @@ CI (`.github/workflows/ci.yml`) runs all four on push and pull request.
 **Never edit `diff-ml-main/`.** It is the supervisor's repository, included for reference.
 
 Adding a model is deliberately a **two-edit** change and requires no modification to
-`pipeline/`, `risk_visualisierung/` or `main.py`. If a change you are making needs edits
+`pipeline/`, `risk_visualization/` or `main.py`. If a change you are making needs edits
 in those places, the abstraction is probably being bypassed — see
 [Adding a pricing model](documentation/docs/code_structure/adding_a_pricing_model.md).
 
@@ -286,7 +286,7 @@ codebase came to hold nothing but a closing bracket.
 - **Docstrings** are one paragraph: what it does and why it is not the obvious
   alternative. Not a parameter list.
 - **Naming** is English throughout the code, including inside the German-named packages
-  (`kalibrierung`, `marktsimulation`, `risk_visualisierung`), whose names match the German
+  (`calibration`, `market_simulation`, `risk_visualization`), whose names match the German
   report.
 - **One convention per concept.** If you find two names for the same thing, unify them.
 - **Randomness is an argument, never a closure.** Label pricers take `(x, key)`; each
@@ -330,5 +330,5 @@ Carried over from the last review, in priority order:
   squared error for `basket_heston`. It is a regression-to-the-mean pattern from unweighted
   MSE over a 0–700 price range, not a constant offset, so it cannot be fixed by subtracting
   a number.
-- `risk_visualisierung/visualizer.py` is a 426-line class with no test coverage, so the
+- `risk_visualization/visualizer.py` is a 426-line class with no test coverage, so the
   reproducibility guard cannot protect a refactor there.

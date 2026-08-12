@@ -9,21 +9,21 @@ import jax.numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
-from kalibrierung.market_data import MarketData
-from marktsimulation.black_scholes import black_scholes_price_single
-from marktsimulation.heston import (
+from calibration.market_data import MarketData
+from market_simulation.black_scholes import black_scholes_price_single
+from market_simulation.heston import (
     feller_ratio,
     heston_characteristic,
     heston_price,
     heston_price_vector,
 )
-from marktsimulation.pricing_model import (
+from market_simulation.pricing_model import (
     HestonModel,
     HestonParams,
     VARIANCE_SMOOTHING,
     smooth_positive,
 )
-from marktsimulation.timesteppingscheme import EulerMaruyama
+from market_simulation.timesteppingscheme import EulerMaruyama
 from pipeline.config import (
     BasketConfig,
     DataConfig,
@@ -69,7 +69,7 @@ def _market_data(spot=100.0):
 def _params_for(model):
     """Each model family has its own parameter shape."""
 
-    from marktsimulation.pricing_model import BachelierParams, BlackScholesParams
+    from market_simulation.pricing_model import BachelierParams, BlackScholesParams
 
     if "heston" in model:
         return P
@@ -496,7 +496,7 @@ def test_mc_price_refuses_to_guess_the_underlying():
     `block[:, 0]`, which is right for Heston only by accident of ordering.
     """
 
-    from marktsimulation.mc_pricing import mc_price
+    from market_simulation.mc_pricing import mc_price
 
     model = HestonModel(scheme=EulerMaruyama())
 

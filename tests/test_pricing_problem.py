@@ -8,8 +8,8 @@ import jax.numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
-from kalibrierung.market_data import MarketData
-from marktsimulation.pricing_model import BlackScholesParams
+from calibration.market_data import MarketData
+from market_simulation.pricing_model import BlackScholesParams
 from pipeline.config import (
     BASKET_BLACK_SCHOLES,
     BLACK_SCHOLES,

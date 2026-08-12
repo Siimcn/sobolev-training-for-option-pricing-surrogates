@@ -8,7 +8,7 @@ from surrogate_modeling.architectures import build_network
 
 
 class NeuralNetwork(eqx.Module):
-    """Generischer Adapter für beliebige JAX-Netze."""
+    """Generic adapter for arbitrary JAX networks."""
 
     model: Callable
     architecture: str = eqx.field(static=True)
@@ -36,7 +36,7 @@ class NeuralNetwork(eqx.Module):
         architecture: str = "MLP",
         **kwargs,
     ) -> "NeuralNetwork":
-        """Baut eine registrierte Architektur und verpackt sie."""
+        """Builds a registered architecture and wraps it."""
 
         return cls(
             build_network(
@@ -53,7 +53,7 @@ class NeuralNetwork(eqx.Module):
 
 
 class FunctionalNetwork(eqx.Module):
-    """Adapter für Netze mit getrennt gehaltenen Parametern (Flax, Haiku)."""
+    """Adapter for networks that keep their parameters separate (Flax, Haiku)."""
 
     params: Any
     apply_fn: Callable = eqx.field(static=True)

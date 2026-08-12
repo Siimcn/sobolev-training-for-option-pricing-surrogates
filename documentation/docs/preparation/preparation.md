@@ -75,10 +75,10 @@ After installation, the repository consists of several independent modules.
 
 | Module | Description |
 |---------|-------------|
-| `kalibrierung` | Calibration of option pricing models |
-| `marktsimulation` | Generation of market data |
+| `calibration` | Calibration of option pricing models |
+| `market_simulation` | Generation of market data |
 | `surrogate_modeling` | Neural network implementation and training |
-| `risk_visualisierung` | Visualization of pricing and risk results |
+| `risk_visualization` | Visualization of pricing and risk results |
 | `utils` | Shared helper functions |
 
 A detailed explanation of each module is provided in the **Code Structure** section.

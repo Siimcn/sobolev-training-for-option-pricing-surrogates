@@ -11,11 +11,11 @@ nav:
 
     - 3. Code structure:
         - 3.1 Overview: code_structure/code_structure.md
-        - 3.2 kalibrierung: code_structure/kalibrierung.md
-        - 3.3 marktsimulation: code_structure/marktsimulation.md
+        - 3.2 calibration: code_structure/calibration.md
+        - 3.3 market_simulation: code_structure/market_simulation.md
         - 3.4 surrogate_modeling: code_structure/surrogate_modeling.md
         - 3.5 pricing problems: code_structure/pricing_problems.md
-        - 3.6 risk_visualisierung: code_structure/risk_visualisierung.md
+        - 3.6 risk_visualization: code_structure/risk_visualization.md
         - 3.7 utils: code_structure/utils.md
         - 3.8 pipeline: code_structure/pipeline.md
         - 3.9 adding a pricing model: code_structure/adding_a_pricing_model.md

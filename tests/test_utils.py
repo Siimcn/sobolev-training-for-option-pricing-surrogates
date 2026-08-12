@@ -9,8 +9,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import jax.numpy as jnp
 
-from kalibrierung.market_data import MarketData
-from marktsimulation.pricing_model import BlackScholesParams
+from calibration.market_data import MarketData
+from market_simulation.pricing_model import BlackScholesParams
 from pipeline.config import BasketConfig, DataConfig, ExperimentConfig
 from surrogate_modeling.pricing_problem import CalibrationResult, build_problem
 from surrogate_modeling.training_config import TrainingConfig
@@ -269,7 +269,7 @@ def test_config_without_a_problem_omits_the_derived_block():
 
 
 def test_save_calibration_and_report():
-    from marktsimulation.pricing_model import BlackScholesParams, HestonParams
+    from market_simulation.pricing_model import BlackScholesParams, HestonParams
 
     with _logger() as (logger, _):
         logger.save_calibration(BlackScholesParams(r=0.03, sigma=0.25), spot=101.5)

@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from risk_visualisierung.visualizer import Visualizer
+from risk_visualization.visualizer import Visualizer
 
 from surrogate_modeling.data_generation import create_sobolev_dataset
 from surrogate_modeling.dataset import SobolevDataset, train_test_split

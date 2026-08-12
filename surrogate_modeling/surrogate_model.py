@@ -7,7 +7,7 @@ from typing import Callable
 
 
 class SurrogateModel(eqx.Module):
-    """Normalisierender Wrapper um ein Preis-Netz."""
+    """Normalising wrapper around a price network."""
 
     model: Callable
     x_mean: jnp.ndarray
@@ -48,34 +48,34 @@ class SurrogateModel(eqx.Module):
         return y_norm * y_std + y_mean
 
     def predict_price(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Preis in Originaleinheiten."""
+        """Price in the original units."""
         return self(x).squeeze()
 
     def predict_gradient(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Gradient des Preises bezüglich der rohen Eingangsgrößen."""
+        """Gradient of the price with respect to the raw inputs."""
         return jax.grad(self.predict_price)(x)
 
     def predict_hessian(self, x: jnp.ndarray) -> jnp.ndarray:
-        """Hessian des Preises bezüglich der rohen Eingangsgrößen."""
+        """Hessian of the price with respect to the raw inputs."""
         return jax.hessian(self.predict_price)(x)
 
     def predict_prices(self, X: jnp.ndarray) -> jnp.ndarray:
-        """Batch-Auswertung: (N, d) -> (N,)."""
+        """Batch evaluation: (N, d) -> (N,)."""
         return jax.vmap(self.predict_price)(X)
 
     def predict_gradients(self, X: jnp.ndarray) -> jnp.ndarray:
-        """Batch-Auswertung: (N, d) -> (N, d)."""
+        """Batch evaluation: (N, d) -> (N, d)."""
         return jax.vmap(self.predict_gradient)(X)
 
     def predict_hessians(self, X: jnp.ndarray) -> jnp.ndarray:
-        """Batch-Auswertung: (N, d) -> (N, d, d)."""
+        """Batch evaluation: (N, d) -> (N, d, d)."""
         return jax.vmap(self.predict_hessian)(X)
 
     def predict_hvp(self, x: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
-        """H @ v, ohne die volle Hessian zu instanziieren."""
+        """H @ v, without ever forming the full Hessian."""
         _, hvp_val = jax.jvp(jax.grad(self.predict_price), (x,), (v,))
         return hvp_val
 
     def predict_hvps(self, X: jnp.ndarray, V: jnp.ndarray) -> jnp.ndarray:
-        """Batch-Auswertung: (N, d), (N, d) -> (N, d)."""
+        """Batch evaluation: (N, d), (N, d) -> (N, d)."""
         return jax.vmap(self.predict_hvp)(X, V)

@@ -8,7 +8,7 @@ NetworkBuilder = Callable[..., Callable]
 
 
 class ResidualMLP(eqx.Module):
-    """MLP mit Skip-Connections."""
+    """MLP with skip connections."""
 
     input_layer: eqx.nn.Linear
     blocks: Tuple[Tuple[eqx.nn.Linear, eqx.nn.Linear], ...]
@@ -99,7 +99,7 @@ _ARCHITECTURES: Dict[str, NetworkBuilder] = {}
 def register_architecture(
     name: str, builder: NetworkBuilder, overwrite: bool = False
 ) -> None:
-    """Registriert eine Netzarchitektur unter `name` (case-insensitive)."""
+    """Registers a network architecture under `name` (case-insensitive)."""
 
     if not callable(builder):
         raise TypeError(f"Builder for architecture '{name}' must be callable.")
@@ -122,7 +122,7 @@ def available_architectures() -> Tuple[str, ...]:
 def build_network(
     architecture: str, key: jax.Array, in_size: int, out_size: int = 1, **kwargs
 ) -> Callable:
-    """Erzeugt ein Netz der registrierten Architektur `architecture`."""
+    """Builds a network of the registered architecture `architecture`."""
 
     name = architecture.upper()
 

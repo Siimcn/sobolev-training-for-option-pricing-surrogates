@@ -12,14 +12,14 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 
-from marktsimulation.mc_pricing import make_feature_price, mc_price
-from marktsimulation.pricing_model import (
+from market_simulation.mc_pricing import make_feature_price, mc_price
+from market_simulation.pricing_model import (
     BasketBlackScholesModel,
     BasketBlackScholesParams,
     BlackScholesModel,
     BlackScholesParams,
 )
-from marktsimulation.timesteppingscheme import EulerMaruyama
+from market_simulation.timesteppingscheme import EulerMaruyama
 
 
 def bs_mc_feature_price(

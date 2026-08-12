@@ -4,24 +4,24 @@ import optimistix as optx
 
 from typing import Dict, Tuple
 
-from kalibrierung.calibrator import Calibrator
+from calibration.calibrator import Calibrator
 
-from marktsimulation.basket_mc import uniform_correlation
+from market_simulation.basket_mc import uniform_correlation
 
-from marktsimulation.heston import feller_ratio, heston_price, heston_price_vector
+from market_simulation.heston import feller_ratio, heston_price, heston_price_vector
 
-from marktsimulation.mc_pricing import mc_price
+from market_simulation.mc_pricing import mc_price
 
-from marktsimulation.payoff import payoff_spec
+from market_simulation.payoff import payoff_spec
 
-from marktsimulation.pricing_model import (
+from market_simulation.pricing_model import (
     BasketHestonModel,
     BasketHestonParams,
     HestonModel,
     HestonParams,
 )
 
-from marktsimulation.timesteppingscheme import EulerMaruyama
+from market_simulation.timesteppingscheme import EulerMaruyama
 
 from surrogate_modeling.domain import (
     exposure_time_grid,

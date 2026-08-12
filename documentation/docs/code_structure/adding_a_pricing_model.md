@@ -1,13 +1,13 @@
 # Adding a pricing model
 
 Two edits. Write a module in `surrogate_modeling/problems/`, and import it from
-that package's `__init__.py`. Nothing in `pipeline/`, `risk_visualisierung/` or
+that package's `__init__.py`. Nothing in `pipeline/`, `risk_visualization/` or
 `main.py` needs to change - those stages take a `PricingProblem` and ask it,
 they never ask which model it is.
 
 ## 1. The market model, if it is new
 
-`marktsimulation/pricing_model.py` holds the dynamics. A `PricingModel`
+`market_simulation/pricing_model.py` holds the dynamics. A `PricingModel`
 subclass needs:
 
 ```python

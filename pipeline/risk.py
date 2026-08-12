@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from risk_visualisierung.xva_analysis import run_xva_analysis
+from risk_visualization.xva_analysis import run_xva_analysis
 
 from surrogate_modeling.pricing_problem import PricingProblem
 from surrogate_modeling.surrogate_model import SurrogateModel

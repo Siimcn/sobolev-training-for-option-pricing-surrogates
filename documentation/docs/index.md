@@ -52,10 +52,10 @@ Describes how to set up the project and prepare the development environment.
 Provides an overview of the software architecture and explains the purpose of each module.
 
 - [Overview](code_structure/code_structure.md)
-- [Calibration](code_structure/kalibrierung.md)
-- [Market Simulation](code_structure/marktsimulation.md)
+- [Calibration](code_structure/calibration.md)
+- [Market Simulation](code_structure/market_simulation.md)
 - [Surrogate Modeling](code_structure/surrogate_modeling.md)
-- [Risk Visualization](code_structure/risk_visualisierung.md)
+- [Risk Visualization](code_structure/risk_visualization.md)
 - [Utilities](code_structure/utils.md)
 
 ---
