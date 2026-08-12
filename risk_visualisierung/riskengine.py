@@ -7,11 +7,7 @@ from typing import Callable, Dict
 class RiskEngine:
     """Exposure and XVA from a valuation along simulated future states."""
 
-    def __init__(
-        self,
-        recovery_rate: float = 0.4,
-        hazard_rate: float = 0.02,
-    ):
+    def __init__(self, recovery_rate: float = 0.4, hazard_rate: float = 0.02):
         self.recovery_rate = recovery_rate
         self.hazard_rate = hazard_rate
 
@@ -24,10 +20,7 @@ class RiskEngine:
     ) -> Dict:
 
         return self.compute_xva_risk_reference(
-            surrogate.predict_price,
-            paths,
-            time_grid,
-            discount_rate,
+            surrogate.predict_price, paths, time_grid, discount_rate
         )
 
     def compute_xva_risk_reference(
@@ -45,72 +38,31 @@ class RiskEngine:
 
         evaluate = jax.vmap(jax.vmap(value_fn))
 
-        return self._exposure_metrics(
-            evaluate(paths),
-            time_grid,
-            discount_rate,
-        )
+        return self._exposure_metrics(evaluate(paths), time_grid, discount_rate)
 
     def _exposure_metrics(
-        self,
-        V: jnp.ndarray,
-        time_grid: jnp.ndarray,
-        discount_rate: float,
+        self, V: jnp.ndarray, time_grid: jnp.ndarray, discount_rate: float
     ) -> Dict:
 
-        discount_factors = jnp.exp(
-            -discount_rate * time_grid
-        )
+        discount_factors = jnp.exp(-discount_rate * time_grid)
 
-        discounted_V = (
-            V * discount_factors
-        )
+        discounted_V = V * discount_factors
 
-        EPE = jnp.mean(
-            jnp.maximum(
-                discounted_V,
-                0.0,
-            ),
-            axis=0,
-        )
+        EPE = jnp.mean(jnp.maximum(discounted_V, 0.0), axis=0)
 
-        ENE = jnp.mean(
-            jnp.maximum(
-                -discounted_V,
-                0.0,
-            ),
-            axis=0,
-        )
+        ENE = jnp.mean(jnp.maximum(-discounted_V, 0.0), axis=0)
 
-        survival = jnp.exp(
-            -self.hazard_rate
-            * time_grid
-        )
+        survival = jnp.exp(-self.hazard_rate * time_grid)
 
-        default_probs = (
-            survival[:-1]
-            - survival[1:]
-        )
+        default_probs = survival[:-1] - survival[1:]
 
-        default_probs = jnp.concatenate(
-            [
-                default_probs,
-                jnp.array([0.0]),
-            ]
-        )
+        default_probs = jnp.concatenate([default_probs, jnp.array([0.0])])
 
-        LGD = (
-            1.0
-            - self.recovery_rate
-        )
+        LGD = 1.0 - self.recovery_rate
 
-        cva = LGD * jnp.sum(
-            EPE * default_probs
-        )
+        cva = LGD * jnp.sum(EPE * default_probs)
 
-        dva = LGD * jnp.sum(
-            ENE * default_probs
-        )
+        dva = LGD * jnp.sum(ENE * default_probs)
 
         return {
             "EPE": EPE,
@@ -121,21 +73,12 @@ class RiskEngine:
             "V_matrix": V,
         }
 
-    def report(
-        self,
-        metrics: Dict,
-    ):
+    def report(self, metrics: Dict):
 
         print("\n===== XVA REPORT =====")
 
-        print(
-            f"CVA     : {metrics['CVA']:.6e}"
-        )
+        print(f"CVA     : {metrics['CVA']:.6e}")
 
-        print(
-            f"DVA     : {metrics['DVA']:.6e}"
-        )
+        print(f"DVA     : {metrics['DVA']:.6e}")
 
-        print(
-            f"Net XVA : {metrics['NetXVA']:.6e}"
-        )
+        print(f"Net XVA : {metrics['NetXVA']:.6e}")

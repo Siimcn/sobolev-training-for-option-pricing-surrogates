@@ -28,38 +28,21 @@ class MarketData(eqx.Module):
 
         self.spot = float(spot)
 
-        self.strikes = jnp.asarray(
-            strikes,
-            dtype=jnp.float64,
-        )
+        self.strikes = jnp.asarray(strikes, dtype=jnp.float64)
 
-        self.maturities = jnp.asarray(
-            maturities,
-            dtype=jnp.float64,
-        )
+        self.maturities = jnp.asarray(maturities, dtype=jnp.float64)
 
-        self.market_prices = jnp.asarray(
-            market_prices,
-            dtype=jnp.float64,
-        )
+        self.market_prices = jnp.asarray(market_prices, dtype=jnp.float64)
 
-        self.is_call = jnp.asarray(
-            is_call,
-            dtype=bool,
-        )
+        self.is_call = jnp.asarray(is_call, dtype=bool)
 
         if weights is None:
 
-            self.weights = jnp.ones_like(
-                self.market_prices
-            )
+            self.weights = jnp.ones_like(self.market_prices)
 
         else:
 
-            self.weights = jnp.asarray(
-                weights,
-                dtype=jnp.float64,
-            )
+            self.weights = jnp.asarray(weights, dtype=jnp.float64)
 
         self._validate()
 
@@ -68,24 +51,16 @@ class MarketData(eqx.Module):
         n = len(self.market_prices)
 
         if len(self.strikes) != n:
-            raise ValueError(
-                "strikes and prices have different lengths."
-            )
+            raise ValueError("strikes and prices have different lengths.")
 
         if len(self.maturities) != n:
-            raise ValueError(
-                "maturities and prices have different lengths."
-            )
+            raise ValueError("maturities and prices have different lengths.")
 
         if len(self.is_call) != n:
-            raise ValueError(
-                "is_call and prices have different lengths."
-            )
+            raise ValueError("is_call and prices have different lengths.")
 
         if len(self.weights) != n:
-            raise ValueError(
-                "weights and prices have different lengths."
-            )
+            raise ValueError("weights and prices have different lengths.")
 
     def __len__(self):
 
@@ -128,25 +103,13 @@ class MarketData(eqx.Module):
 
         print("\n===== Market Data =====\n")
 
-        print(
-            f"Spot                  : "
-            f"{self.spot:.2f}"
-        )
+        print(f"Spot                  : " f"{self.spot:.2f}")
 
-        print(
-            f"Number of instruments : "
-            f"{self.num_instruments}"
-        )
+        print(f"Number of instruments : " f"{self.num_instruments}")
 
-        print(
-            f"Calls                 : "
-            f"{int(jnp.sum(self.is_call))}"
-        )
+        print(f"Calls                 : " f"{int(jnp.sum(self.is_call))}")
 
-        print(
-            f"Puts                  : "
-            f"{int(jnp.sum(~self.is_call))}"
-        )
+        print(f"Puts                  : " f"{int(jnp.sum(~self.is_call))}")
 
         print(
             f"Strike range          : "

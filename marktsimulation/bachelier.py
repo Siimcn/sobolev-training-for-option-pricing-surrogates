@@ -3,7 +3,6 @@ import jax.numpy as jnp
 
 from jax.scipy.stats import norm
 
-
 """
 Bachelier (normal) model: closed-form prices and Greeks.
 """
@@ -16,11 +15,7 @@ def _floor_maturity(maturity):
 
 
 def bachelier_price(
-    params,
-    strikes: jnp.ndarray,
-    maturities: jnp.ndarray,
-    is_call: jnp.ndarray,
-    spot,
+    params, strikes: jnp.ndarray, maturities: jnp.ndarray, is_call: jnp.ndarray, spot
 ) -> jnp.ndarray:
     """Vectorised Bachelier price from the spot, in the Calibrator's argument order."""
 
@@ -42,12 +37,7 @@ def bachelier_price(
 
 
 def bachelier_price_single(
-    forward,
-    strike,
-    maturity,
-    sigma,
-    r=0.0,
-    is_call: bool = True,
+    forward, strike, maturity, sigma, r=0.0, is_call: bool = True
 ):
     """Scalar Bachelier price."""
 
@@ -61,9 +51,7 @@ def bachelier_price_single(
 
     d = moneyness / scale
 
-    return jnp.exp(-r * maturity) * (
-        moneyness * norm.cdf(d) + scale * norm.pdf(d)
-    )
+    return jnp.exp(-r * maturity) * (moneyness * norm.cdf(d) + scale * norm.pdf(d))
 
 
 def bachelier_forward(spot, maturity, r):
@@ -128,9 +116,7 @@ def bachelier_vega(forward, strike, maturity, sigma, r=0.0):
 
 
 def basket_normal_volatility(
-    weights: jnp.ndarray,
-    sigmas: jnp.ndarray,
-    corr: jnp.ndarray,
+    weights: jnp.ndarray, sigmas: jnp.ndarray, corr: jnp.ndarray
 ):
     """Volatility of the weighted basket, sqrt(w' diag(sigma) C diag(sigma) w)."""
 

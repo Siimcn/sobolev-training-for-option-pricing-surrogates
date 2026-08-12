@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 from kalibrierung.market_data import MarketData
 from marktsimulation.black_scholes import black_scholes_price_single
-from marktsimulation.black_scholes_mc import bs_mc_price
+from conftest import bs_mc_feature_price
 from marktsimulation.pricing_model import BlackScholesParams
 from marktsimulation.sobolev_labels import label_keys
 from pipeline.config import (
@@ -20,7 +20,6 @@ from pipeline.config import (
     SimulationConfig,
 )
 from surrogate_modeling.pricing_problem import CalibrationResult, build_problem
-
 
 SPOT, SIGMA, R = 100.0, 0.2, 0.05
 
@@ -57,7 +56,7 @@ def _error_matrix(points, reference, shared):
 
         labels = jnp.array(
             [
-                float(bs_mc_price(x, k, num_paths=N_PATHS))
+                float(bs_mc_feature_price(x, k, num_paths=N_PATHS))
                 for x, k in zip(points, keys)
             ]
         )
@@ -149,7 +148,10 @@ def test_a_default_dataset_is_unbiased_against_the_closed_form():
     keys = label_keys(0, len(points))
 
     labels = jnp.array(
-        [float(bs_mc_price(x, k, num_paths=20_000)) for x, k in zip(points, keys)]
+        [
+            float(bs_mc_feature_price(x, k, num_paths=20_000))
+            for x, k in zip(points, keys)
+        ]
     )
 
     relative_bias = float(jnp.mean(labels - reference) / jnp.mean(reference))

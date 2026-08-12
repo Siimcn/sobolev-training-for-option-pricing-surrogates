@@ -1,8 +1,9 @@
-import os
 import json
 import sys
 from dataclasses import fields, is_dataclass
 from datetime import datetime
+
+from utils.paths import project_path
 
 
 def _json_safe(value):
@@ -51,47 +52,23 @@ class LoggerWriter:
 
 class ExperimentLogger:
 
-    def __init__(
-        self,
-        base_dir: str = "results",
-        echo: bool = True,
-    ):
+    def __init__(self, base_dir: str = "results", echo: bool = True):
 
-        self.run_id = datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
-        )
+        self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        self.output_dir = os.path.join(
-            base_dir,
-            self.run_id,
-        )
+        # anchored to the repository, not to the working directory, so a run
+        # started from anywhere writes to the same place
+        self.output_dir = project_path(base_dir, self.run_id)
 
-        os.makedirs(
-            self.output_dir,
-            exist_ok=True,
-        )
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        sys.stdout = LoggerWriter(
-            self.path("console_output.txt"),
-            echo=echo,
-        )
+        sys.stdout = LoggerWriter(self.path("console_output.txt"), echo=echo)
 
-    def path(
-        self,
-        filename: str,
-    ):
+    def path(self, filename: str):
 
-        return os.path.join(
-            self.output_dir,
-            filename,
-        )
-    
-    def save_calibration(
-        self,
-        fitted_params,
-        spot,
-        filename: str = "calibration.json",
-    ):
+        return self.output_dir / filename
+
+    def save_calibration(self, fitted_params, spot, filename: str = "calibration.json"):
 
         fields = (
             fitted_params._asdict()
@@ -101,22 +78,11 @@ class ExperimentLogger:
 
         data = {"Spot": float(spot), **_json_safe(dict(fields))}
 
-        with open(
-            self.path(filename),
-            "w",
-        ) as f:
+        with open(self.path(filename), "w") as f:
 
-            json.dump(
-                data,
-                f,
-                indent=4,
-            )
+            json.dump(data, f, indent=4)
 
-    def save_metrics(
-        self,
-        metrics: dict,
-        filename: str = "metrics.json",
-    ):
+    def save_metrics(self, metrics: dict, filename: str = "metrics.json"):
 
         serializable = {}
 
@@ -127,22 +93,11 @@ class ExperimentLogger:
             except Exception:
                 serializable[k] = str(v)
 
-        with open(
-            self.path(filename),
-            "w",
-        ) as f:
+        with open(self.path(filename), "w") as f:
 
-            json.dump(
-                serializable,
-                f,
-                indent=4,
-            )
+            json.dump(serializable, f, indent=4)
 
-    def save_xva(
-        self,
-        xva: dict,
-        filename: str = "xva.json",
-    ):
+    def save_xva(self, xva: dict, filename: str = "xva.json"):
 
         serializable = {}
 
@@ -154,49 +109,21 @@ class ExperimentLogger:
             except Exception:
                 pass
 
-        with open(
-            self.path(filename),
-            "w",
-        ) as f:
+        with open(self.path(filename), "w") as f:
 
-            json.dump(
-                serializable,
-                f,
-                indent=4,
-            )
+            json.dump(serializable, f, indent=4)
 
-    def save_config(
-        self,
-        config,
-        filename: str = "config.json",
-    ):
+    def save_config(self, config, filename: str = "config.json"):
 
-        with open(
-            self.path(filename),
-            "w",
-        ) as f:
-            json.dump(
-                _json_safe(config),
-                f,
-                indent=4,
-            )
+        with open(self.path(filename), "w") as f:
+            json.dump(_json_safe(config), f, indent=4)
 
-    def save_report(
-        self,
-        text: str,
-        filename: str = "report.txt",
-    ):
+    def save_report(self, text: str, filename: str = "report.txt"):
 
-        with open(
-            self.path(filename),
-            "w",
-        ) as f:
+        with open(self.path(filename), "w") as f:
 
             f.write(text)
 
     def print_location(self):
 
-        print(
-            f"\nResults stored in:\n"
-            f"{self.output_dir}\n"
-        )
+        print(f"\nResults stored in:\n" f"{self.output_dir}\n")

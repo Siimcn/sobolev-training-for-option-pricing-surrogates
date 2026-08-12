@@ -30,26 +30,19 @@ def plot_training_diagnostics(
     config: ExperimentConfig,
 ) -> None:
 
-    Visualizer.plot_training_history(
-        history
-    )
+    Visualizer.plot_training_history(history)
 
     Visualizer.plot_price_comparison(
-        test_dataset.y,
-        surrogate.predict_prices(test_dataset.X),
+        test_dataset.y, surrogate.predict_prices(test_dataset.X)
     )
 
-    print(
-        "\nGenerating surrogate surface..."
-    )
+    print("\nGenerating surrogate surface...")
 
     _plot_price_surfaces(surrogate, problem, config)
 
 
 def _plot_price_surfaces(
-    surrogate: SurrogateModel,
-    problem: PricingProblem,
-    config: ExperimentConfig,
+    surrogate: SurrogateModel, problem: PricingProblem, config: ExperimentConfig
 ) -> None:
     """Slices through the surrogate's input space, all of it from `problem`."""
 
@@ -61,8 +54,7 @@ def _plot_price_surfaces(
     for spec in problem.surface_specs():
 
         filename = (
-            f"surrogate_surface_"
-            f"{names[spec.x_index]}_{names[spec.y_index]}.png"
+            f"surrogate_surface_" f"{names[spec.x_index]}_{names[spec.y_index]}.png"
         )
 
         Visualizer.plot_surrogate_surface(
@@ -89,35 +81,24 @@ def save_artifacts(
     xva: Optional[Dict[str, float]],
 ) -> None:
 
-    logger.save_report(
-        _report_text(problem, calibration, metrics, validation, xva)
-    )
+    logger.save_report(_report_text(problem, calibration, metrics, validation, xva))
 
-    logger.save_calibration(
-        calibration.params,
-        market_data.spot,
-    )
+    logger.save_calibration(calibration.params, market_data.spot)
 
     logger.save_metrics(
         {
             **metrics,
             **(validation or {}),
             **_fitted_metrics(calibration),
-            "Spot": float(
-                market_data.spot
-            ),
+            "Spot": float(market_data.spot),
         },
         filename="metrics.json",
     )
 
     if xva is not None:
-        logger.save_xva(
-            xva
-        )
+        logger.save_xva(xva)
 
-    logger.save_config(
-        config.to_dict(problem)
-    )
+    logger.save_config(config.to_dict(problem))
 
 
 def _fitted_fields(calibration) -> Dict[str, object]:

@@ -4,7 +4,6 @@ import equinox as eqx
 
 from typing import Callable, Dict, Tuple
 
-
 NetworkBuilder = Callable[..., Callable]
 
 
@@ -28,38 +27,19 @@ class ResidualMLP(eqx.Module):
     ):
         n_blocks = max(depth // 2, 1)
 
-        keys = jax.random.split(
-            key,
-            2 * n_blocks + 2,
-        )
+        keys = jax.random.split(key, 2 * n_blocks + 2)
 
-        self.input_layer = eqx.nn.Linear(
-            in_size,
-            width_size,
-            key=keys[0],
-        )
+        self.input_layer = eqx.nn.Linear(in_size, width_size, key=keys[0])
 
         self.blocks = tuple(
             (
-                eqx.nn.Linear(
-                    width_size,
-                    width_size,
-                    key=keys[2 * i + 1],
-                ),
-                eqx.nn.Linear(
-                    width_size,
-                    width_size,
-                    key=keys[2 * i + 2],
-                ),
+                eqx.nn.Linear(width_size, width_size, key=keys[2 * i + 1]),
+                eqx.nn.Linear(width_size, width_size, key=keys[2 * i + 2]),
             )
             for i in range(n_blocks)
         )
 
-        self.output_layer = eqx.nn.Linear(
-            width_size,
-            out_size,
-            key=keys[-1],
-        )
+        self.output_layer = eqx.nn.Linear(width_size, out_size, key=keys[-1])
 
         self.activation = activation
 
@@ -68,15 +48,9 @@ class ResidualMLP(eqx.Module):
         h = self.input_layer(x)
 
         for first, second in self.blocks:
-            h = h + second(
-                self.activation(
-                    first(self.activation(h))
-                )
-            )
+            h = h + second(self.activation(first(self.activation(h))))
 
-        return self.output_layer(
-            self.activation(h)
-        )
+        return self.output_layer(self.activation(h))
 
 
 def build_mlp(
@@ -123,16 +97,12 @@ _ARCHITECTURES: Dict[str, NetworkBuilder] = {}
 
 
 def register_architecture(
-    name: str,
-    builder: NetworkBuilder,
-    overwrite: bool = False,
+    name: str, builder: NetworkBuilder, overwrite: bool = False
 ) -> None:
     """Registriert eine Netzarchitektur unter `name` (case-insensitive)."""
 
     if not callable(builder):
-        raise TypeError(
-            f"Builder for architecture '{name}' must be callable."
-        )
+        raise TypeError(f"Builder for architecture '{name}' must be callable.")
 
     key = name.upper()
 
@@ -150,11 +120,7 @@ def available_architectures() -> Tuple[str, ...]:
 
 
 def build_network(
-    architecture: str,
-    key: jax.Array,
-    in_size: int,
-    out_size: int = 1,
-    **kwargs,
+    architecture: str, key: jax.Array, in_size: int, out_size: int = 1, **kwargs
 ) -> Callable:
     """Erzeugt ein Netz der registrierten Architektur `architecture`."""
 
@@ -168,17 +134,11 @@ def build_network(
             "already-built JAX model straight to SurrogateModel."
         )
 
-    model = _ARCHITECTURES[name](
-        key=key,
-        in_size=in_size,
-        out_size=out_size,
-        **kwargs,
-    )
+    model = _ARCHITECTURES[name](key=key, in_size=in_size, out_size=out_size, **kwargs)
 
     if not callable(model):
         raise TypeError(
-            f"Builder for architecture '{name}' returned a "
-            "non-callable object."
+            f"Builder for architecture '{name}' returned a " "non-callable object."
         )
 
     return model

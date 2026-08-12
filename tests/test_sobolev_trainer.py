@@ -17,14 +17,19 @@ from surrogate_modeling.sobolev_trainer import SobolevTrainer
 from surrogate_modeling.surrogate_model import SurrogateModel
 from surrogate_modeling.training_config import TrainingConfig
 
-
 D = 3
 
 HISTORY_KEYS = [
-    "train_loss", "valid_loss",
-    "train_price_rmse", "valid_price_rmse",
-    "train_price_loss", "train_gradient_loss", "train_hessian_loss",
-    "valid_price_loss", "valid_gradient_loss", "valid_hessian_loss",
+    "train_loss",
+    "valid_loss",
+    "train_price_rmse",
+    "valid_price_rmse",
+    "train_price_loss",
+    "train_gradient_loss",
+    "train_hessian_loss",
+    "valid_price_loss",
+    "valid_gradient_loss",
+    "valid_hessian_loss",
 ]
 
 
@@ -64,8 +69,12 @@ def _surrogate(dataset, seed=0):
 
 def _config(**overrides):
     base = dict(
-        learning_rate=1e-2, batch_size=16, epochs=10,
-        early_stopping=False, print_every=1000, sobolev_order=2,
+        learning_rate=1e-2,
+        batch_size=16,
+        epochs=10,
+        early_stopping=False,
+        print_every=1000,
+        sobolev_order=2,
     )
     base.update(overrides)
     return TrainingConfig(**base)
@@ -95,8 +104,13 @@ def test_without_validation_only_train_curves_are_filled():
 def test_early_stopping_halts_when_validation_stops_improving():
     train, valid = train_test_split(_dataset())
 
-    config = _config(epochs=50, early_stopping=True, patience=2,
-                     min_delta=1e9, min_delta_relative=0.0)
+    config = _config(
+        epochs=50,
+        early_stopping=True,
+        patience=2,
+        min_delta=1e9,
+        min_delta_relative=0.0,
+    )
 
     history = SobolevTrainer(_surrogate(train), config).fit(train, valid)
 
@@ -106,8 +120,13 @@ def test_early_stopping_halts_when_validation_stops_improving():
 def test_early_stopping_disabled_runs_every_epoch():
     train, valid = train_test_split(_dataset())
 
-    config = _config(epochs=6, early_stopping=False, patience=2,
-                     min_delta=1e9, min_delta_relative=0.0)
+    config = _config(
+        epochs=6,
+        early_stopping=False,
+        patience=2,
+        min_delta=1e9,
+        min_delta_relative=0.0,
+    )
 
     history = SobolevTrainer(_surrogate(train), config).fit(train, valid)
 

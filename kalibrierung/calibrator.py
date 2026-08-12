@@ -4,6 +4,7 @@ import optimistix as optx
 from typing import Callable, Optional, Any
 
 from kalibrierung.market_data import MarketData
+from marktsimulation.param_validation import validate_params
 
 
 class Calibrator:
@@ -20,20 +21,14 @@ class Calibrator:
         self.transform_fn = transform_fn
         self.inv_transform_fn = inv_transform_fn
 
-    def _residuals(
-        self,
-        params,
-        args,
-    ):
+    def _residuals(self, params, args):
 
         market_data = args
 
         eval_params = params
 
         if self.transform_fn is not None:
-            eval_params = self.transform_fn(
-                params
-            )
+            eval_params = self.transform_fn(params)
 
         model_prices = self.pricing_fn(
             eval_params,
@@ -42,10 +37,7 @@ class Calibrator:
             market_data.is_call,
         )
 
-        return (
-            model_prices
-            - market_data.market_prices
-        ) * market_data.weights
+        return (model_prices - market_data.market_prices) * market_data.weights
 
     def calibrate(
         self,
@@ -56,17 +48,16 @@ class Calibrator:
         max_steps: int = 500,
     ):
 
+        # the starting point, before the solver has touched it: a bad initial
+        # guess otherwise surfaces as a confusing failure several steps later
+        validate_params(init_params)
+
         y0 = init_params
 
         if self.inv_transform_fn is not None:
-            y0 = self.inv_transform_fn(
-                init_params
-            )
+            y0 = self.inv_transform_fn(init_params)
 
-        solver = optx.LevenbergMarquardt(
-            rtol=rtol,
-            atol=atol,
-        )
+        solver = optx.LevenbergMarquardt(rtol=rtol, atol=atol)
 
         solution = optx.least_squares(
             fn=self._residuals,
@@ -80,74 +71,39 @@ class Calibrator:
         fitted_params = solution.value
 
         if self.transform_fn is not None:
-            fitted_params = self.transform_fn(
-                fitted_params
-            )
+            fitted_params = self.transform_fn(fitted_params)
 
-        return (
-            fitted_params,
-            solution,
-        )
+        # and the result, since a non-converged solve can land outside the
+        # admissible region and every label downstream would inherit it
+        validate_params(fitted_params)
 
-    def pricing_error(
-        self,
-        params,
-        market_data: MarketData,
-    ):
+        return (fitted_params, solution)
+
+    def pricing_error(self, params, market_data: MarketData):
 
         model_prices = self.pricing_fn(
-            params,
-            market_data.strikes,
-            market_data.maturities,
-            market_data.is_call,
+            params, market_data.strikes, market_data.maturities, market_data.is_call
         )
 
-        residuals = (
-            model_prices
-            - market_data.market_prices
-        )
+        residuals = model_prices - market_data.market_prices
 
-        rmse = jnp.sqrt(
-            jnp.mean(
-                residuals**2
-            )
-        )
+        rmse = jnp.sqrt(jnp.mean(residuals**2))
 
-        mae = jnp.mean(
-            jnp.abs(
-                residuals
-            )
-        )
+        mae = jnp.mean(jnp.abs(residuals))
 
-        return {
-            "RMSE": float(rmse),
-            "MAE": float(mae),
-        }
+        return {"RMSE": float(rmse), "MAE": float(mae)}
 
-    def report(
-        self,
-        params,
-        market_data: MarketData,
-    ):
+    def report(self, params, market_data: MarketData):
 
-        metrics = self.pricing_error(
-            params,
-            market_data,
-        )
+        metrics = self.pricing_error(params, market_data)
 
         print("\n")
         print("=" * 50)
         print("CALIBRATION REPORT")
         print("=" * 50)
 
-        print(
-            f"RMSE : "
-            f"{metrics['RMSE']:.6e}"
-        )
+        print(f"RMSE : " f"{metrics['RMSE']:.6e}")
 
-        print(
-            f"MAE  : "
-            f"{metrics['MAE']:.6e}"
-        )
+        print(f"MAE  : " f"{metrics['MAE']:.6e}")
 
         print("=" * 50)

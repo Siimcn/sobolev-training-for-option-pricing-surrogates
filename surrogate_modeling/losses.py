@@ -3,24 +3,15 @@ import jax.numpy as jnp
 from typing import Dict, Optional, Tuple
 
 
-def mse_loss(
-    prediction: jnp.ndarray,
-    target: jnp.ndarray,
-) -> jnp.ndarray:
+def mse_loss(prediction: jnp.ndarray, target: jnp.ndarray) -> jnp.ndarray:
     return jnp.mean((prediction - target) ** 2)
 
 
-def rmse_loss(
-    prediction: jnp.ndarray,
-    target: jnp.ndarray,
-) -> jnp.ndarray:
+def rmse_loss(prediction: jnp.ndarray, target: jnp.ndarray) -> jnp.ndarray:
     return jnp.sqrt(mse_loss(prediction, target))
 
 
-def mae_loss(
-    prediction: jnp.ndarray,
-    target: jnp.ndarray,
-) -> jnp.ndarray:
+def mae_loss(prediction: jnp.ndarray, target: jnp.ndarray) -> jnp.ndarray:
     return jnp.mean(jnp.abs(prediction - target))
 
 
@@ -52,23 +43,13 @@ def price_loss(
 
 
 def gradient_loss(
-    gradients_pred: jnp.ndarray,
-    gradients_true: jnp.ndarray,
+    gradients_pred: jnp.ndarray, gradients_true: jnp.ndarray
 ) -> jnp.ndarray:
-    return mse_loss(
-        gradients_pred,
-        gradients_true,
-    )
+    return mse_loss(gradients_pred, gradients_true)
 
 
-def hvp_loss(
-    hvps_pred: jnp.ndarray,
-    hvps_true: jnp.ndarray,
-) -> jnp.ndarray:
-    return mse_loss(
-        hvps_pred,
-        hvps_true,
-    )
+def hvp_loss(hvps_pred: jnp.ndarray, hvps_true: jnp.ndarray) -> jnp.ndarray:
+    return mse_loss(hvps_pred, hvps_true)
 
 
 def sobolev_loss_weights(
@@ -124,8 +105,10 @@ def sobolev_loss(
     )
 
     lp = price_loss(
-        prices_pred, prices_true,
-        scale_floor=price_scale_floor, scale_ceiling=price_scale_ceiling,
+        prices_pred,
+        prices_true,
+        scale_floor=price_scale_floor,
+        scale_ceiling=price_scale_ceiling,
     )
 
     total = alpha * lp
@@ -154,47 +137,10 @@ def sobolev_loss(
 
 
 def relative_l2_error(
-    prediction: jnp.ndarray,
-    target: jnp.ndarray,
-    eps: float = 1e-12,
+    prediction: jnp.ndarray, target: jnp.ndarray, eps: float = 1e-12
 ) -> jnp.ndarray:
-    numerator = jnp.linalg.norm(
-        prediction - target
-    )
+    numerator = jnp.linalg.norm(prediction - target)
 
-    denominator = (
-        jnp.linalg.norm(target)
-        + eps
-    )
+    denominator = jnp.linalg.norm(target) + eps
 
     return numerator / denominator
-
-
-def relative_price_error(
-    prices_pred: jnp.ndarray,
-    prices_true: jnp.ndarray,
-) -> jnp.ndarray:
-    return relative_l2_error(
-        prices_pred,
-        prices_true,
-    )
-
-
-def relative_gradient_error(
-    gradients_pred: jnp.ndarray,
-    gradients_true: jnp.ndarray,
-) -> jnp.ndarray:
-    return relative_l2_error(
-        gradients_pred,
-        gradients_true,
-    )
-
-
-def relative_hessian_error(
-    hessians_pred: jnp.ndarray,
-    hessians_true: jnp.ndarray,
-) -> jnp.ndarray:
-    return relative_l2_error(
-        hessians_pred,
-        hessians_true,
-    )

@@ -34,9 +34,9 @@ def create_sobolev_labels(
 
     if sobolev_order >= 2:
         hvp_fn = jax.jit(
-            lambda x, v, key: jax.jvp(
-                lambda z: jax.grad(price_fn)(z, key), (x,), (v,)
-            )[1]
+            lambda x, v, key: jax.jvp(lambda z: jax.grad(price_fn)(z, key), (x,), (v,))[
+                1
+            ]
         )
 
     prices = []

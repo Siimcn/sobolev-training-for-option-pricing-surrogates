@@ -9,11 +9,8 @@ import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 
 from kalibrierung.market_data import MarketData
-from marktsimulation.basket_mc import (
-    is_exchangeable,
-    make_basket_feature_price,
-    uniform_correlation,
-)
+from conftest import basket_bs_feature_price
+from marktsimulation.basket_mc import is_exchangeable, uniform_correlation
 from marktsimulation.black_scholes import black_scholes_price_single
 from marktsimulation.pricing_model import BlackScholesParams
 from pipeline.config import (
@@ -30,7 +27,6 @@ from surrogate_modeling.pricing_problem import (
     available_problems,
     build_problem,
 )
-
 
 SPOT, SIGMA, R = 100.0, 0.2, 0.05
 
@@ -73,7 +69,9 @@ def _problem(pricing_model, basket=None, min_maturity=None, num_paths=4_000):
     )
 
 
-def _dataset(pricing_model, basket=None, n_samples=3, sobolev_order=2, min_maturity=None):
+def _dataset(
+    pricing_model, basket=None, n_samples=3, sobolev_order=2, min_maturity=None
+):
     return create_sobolev_dataset(
         _problem(pricing_model, basket, min_maturity),
         sobolev_order,
@@ -97,18 +95,13 @@ def test_black_scholes_feature_layout():
 def test_basket_feature_layout_follows_the_asset_count():
     assert _problem(BASKET_BLACK_SCHOLES).feature_names == ("S1", "S2", "S3", "K", "T")
 
-    wider = _problem(
-        BASKET_BLACK_SCHOLES,
-        basket=BasketConfig(n_assets=5),
-    )
+    wider = _problem(BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=5))
 
     assert wider.feature_names == ("S1", "S2", "S3", "S4", "S5", "K", "T")
 
 
 def test_weights_default_to_equal_shares():
-    equal = _problem(
-        BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=4)
-    )
+    equal = _problem(BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=4))
 
     assert bool(jnp.allclose(equal.weights, 0.25))
 
@@ -190,9 +183,7 @@ def test_feature_bounds_match_the_drawn_samples():
 
         low, high = problem.feature_bounds()
 
-        u = jax.random.uniform(
-            jax.random.PRNGKey(3), shape=(64, problem.n_features)
-        )
+        u = jax.random.uniform(jax.random.PRNGKey(3), shape=(64, problem.n_features))
 
         X = problem.sample_features(u)
 
@@ -221,7 +212,7 @@ def test_only_the_basket_declares_exchangeable_features():
 
 
 def test_single_asset_basket_matches_the_analytic_call():
-    price_fn = make_basket_feature_price(
+    price_fn = basket_bs_feature_price(
         weights=jnp.array([1.0]),
         corr=uniform_correlation(1, 0.0),
         sigmas=jnp.array([SIGMA]),
@@ -237,7 +228,7 @@ def test_single_asset_basket_matches_the_analytic_call():
 
 
 def test_basket_price_is_differentiable_twice():
-    price_fn = make_basket_feature_price(
+    price_fn = basket_bs_feature_price(
         weights=jnp.full(3, 1.0 / 3.0),
         corr=uniform_correlation(3, 0.5),
         sigmas=jnp.full(3, SIGMA),
@@ -267,7 +258,7 @@ def test_basket_price_is_differentiable_twice():
 def test_european_payoff_is_priced_from_an_exact_terminal_draw():
     def priced(num_steps):
         return float(
-            make_basket_feature_price(
+            basket_bs_feature_price(
                 weights=jnp.full(3, 1.0 / 3.0),
                 corr=uniform_correlation(3, 0.5),
                 sigmas=jnp.full(3, SIGMA),
@@ -284,7 +275,7 @@ def test_european_payoff_is_priced_from_an_exact_terminal_draw():
 def test_path_dependent_payoff_still_uses_the_stepping_scheme():
     def priced(num_steps):
         return float(
-            make_basket_feature_price(
+            basket_bs_feature_price(
                 weights=jnp.full(3, 1.0 / 3.0),
                 corr=uniform_correlation(3, 0.5),
                 sigmas=jnp.full(3, SIGMA),
@@ -299,7 +290,7 @@ def test_path_dependent_payoff_still_uses_the_stepping_scheme():
 
 
 def test_exact_sampling_is_unbiased_against_the_closed_form():
-    price_fn = make_basket_feature_price(
+    price_fn = basket_bs_feature_price(
         weights=jnp.array([1.0]),
         corr=uniform_correlation(1, 0.0),
         sigmas=jnp.array([SIGMA]),
@@ -309,9 +300,7 @@ def test_exact_sampling_is_unbiased_against_the_closed_form():
 
     x = jnp.array([SPOT, 100.0, 1.0])
 
-    prices = jnp.array(
-        [float(price_fn(x, jax.random.PRNGKey(s))) for s in range(16)]
-    )
+    prices = jnp.array([float(price_fn(x, jax.random.PRNGKey(s))) for s in range(16)])
 
     analytic = float(black_scholes_price_single(SPOT, 100.0, 1.0, SIGMA, R))
 
@@ -321,7 +310,7 @@ def test_exact_sampling_is_unbiased_against_the_closed_form():
 
 
 def test_exact_sampling_stays_twice_differentiable():
-    price_fn = make_basket_feature_price(
+    price_fn = basket_bs_feature_price(
         weights=jnp.full(3, 1.0 / 3.0),
         corr=uniform_correlation(3, 0.5),
         sigmas=jnp.full(3, SIGMA),
@@ -370,11 +359,7 @@ def test_basket_dataset_shapes_follow_the_asset_count():
     assert dataset.gradients.shape == (3, 5)
     assert dataset.input_dim == 5
 
-    wider = _dataset(
-        BASKET_BLACK_SCHOLES,
-        basket=BasketConfig(n_assets=4),
-        n_samples=2,
-    )
+    wider = _dataset(BASKET_BLACK_SCHOLES, basket=BasketConfig(n_assets=4), n_samples=2)
 
     assert wider.X.shape == (2, 6)
     assert wider.input_dim == 6
@@ -400,16 +385,8 @@ def test_sobolev_order_one_skips_the_hvps():
 
 def test_preview_paths_read_the_right_feature_layout():
     for model, x, horizon in [
-        (
-            BLACK_SCHOLES,
-            jnp.array([312.34, 300.0, 0.83, 0.2883, 0.0414]),
-            0.83,
-        ),
-        (
-            BASKET_BLACK_SCHOLES,
-            jnp.array([180.73, 695.27, 579.35, 362.39, 0.83]),
-            0.83,
-        ),
+        (BLACK_SCHOLES, jnp.array([312.34, 300.0, 0.83, 0.2883, 0.0414]), 0.83),
+        (BASKET_BLACK_SCHOLES, jnp.array([180.73, 695.27, 579.35, 362.39, 0.83]), 0.83),
     ]:
         time_grid, paths = _problem(model).underlying_paths(x, num_paths=8)
 
@@ -461,9 +438,13 @@ def test_only_black_scholes_offers_a_closed_form():
     analytic = bs.analytic_price(x_bs)
 
     assert analytic is not None
-    assert abs(
-        float(analytic) - float(black_scholes_price_single(SPOT, 100.0, 0.5, SIGMA, R))
-    ) < 1e-10
+    assert (
+        abs(
+            float(analytic)
+            - float(black_scholes_price_single(SPOT, 100.0, 0.5, SIGMA, R))
+        )
+        < 1e-10
+    )
 
     assert basket.analytic_price(basket.baseline_features()) is None
 
@@ -509,7 +490,7 @@ def test_reference_points_are_in_domain():
 def _basket_pricer(symmetrize, n=3, rho=0.5, weights=None):
     w = jnp.full(n, 1.0 / n) if weights is None else jnp.asarray(weights)
 
-    priced = make_basket_feature_price(
+    priced = basket_bs_feature_price(
         weights=w,
         corr=uniform_correlation(n, rho),
         sigmas=jnp.full(n, SIGMA),
@@ -567,13 +548,26 @@ def test_exchangeability_check():
     w, s = jnp.full(3, 1 / 3), jnp.full(3, SIGMA)
 
     assert is_exchangeable(w, s, uniform_correlation(3, 0.5))
-    assert not is_exchangeable(jnp.array([0.5, 0.3, 0.2]), s, uniform_correlation(3, 0.5))
-    assert not is_exchangeable(w, jnp.array([0.1, 0.2, 0.3]), uniform_correlation(3, 0.5))
+    assert not is_exchangeable(
+        jnp.array([0.5, 0.3, 0.2]), s, uniform_correlation(3, 0.5)
+    )
+    assert not is_exchangeable(
+        w, jnp.array([0.1, 0.2, 0.3]), uniform_correlation(3, 0.5)
+    )
 
 
 def test_symmetrize_rejects_a_non_exchangeable_basket():
+    """
+    Sorting the spots is only price-preserving when the assets are
+    interchangeable, so the problem refuses to be built otherwise - at
+    construction, rather than silently mispricing at the first label.
+    """
+
     try:
-        _basket_pricer(symmetrize=True, weights=(0.5, 0.3, 0.2))
+        _problem(
+            BASKET_BLACK_SCHOLES,
+            basket=BasketConfig(n_assets=3, weights=(0.5, 0.3, 0.2), symmetrize=True),
+        )
     except ValueError as e:
         assert "exchangeable" in str(e)
     else:

@@ -8,11 +8,7 @@ from kalibrierung.calibrator import Calibrator
 
 from marktsimulation.basket_mc import uniform_correlation
 
-from marktsimulation.heston import (
-    feller_ratio,
-    heston_price,
-    heston_price_vector,
-)
+from marktsimulation.heston import feller_ratio, heston_price, heston_price_vector
 
 from marktsimulation.mc_pricing import mc_price
 
@@ -39,12 +35,12 @@ from surrogate_modeling.domain import (
 from surrogate_modeling.pricing_problem import (
     CalibrationResult,
     calibration_residuals,
+    MonteCarloProblem,
     PricingProblem,
     ProblemSpec,
     ShapeConstraint,
     register_problem,
 )
-
 
 HESTON = "heston"
 BASKET_HESTON = "basket_heston"
@@ -94,9 +90,7 @@ def calibrate_heston(config, market_data) -> CalibrationResult:
     variance = float(config.market.initial_sigma) ** 2
 
     fitted, solution = Calibrator(
-        pricing_fn=pricing_fn,
-        transform_fn=to_model,
-        inv_transform_fn=to_unconstrained,
+        pricing_fn=pricing_fn, transform_fn=to_model, inv_transform_fn=to_unconstrained
     ).calibrate(
         HestonParams(
             r=config.market.initial_rate,
@@ -162,8 +156,7 @@ def calibrate_basket_heston(config, market_data) -> CalibrationResult:
                 "instrument constrains it"
             ),
             "per_asset_dynamics": (
-                "every asset shares the calibrated single-name Heston "
-                "parameters"
+                "every asset shares the calibrated single-name Heston " "parameters"
             ),
             "spot_variance_cross_correlation": (
                 "corr(dW_Si, dW_vj) = rho * C_ij for i != j, from the "
@@ -175,25 +168,28 @@ def calibrate_basket_heston(config, market_data) -> CalibrationResult:
     )
 
 
-class HestonProblem(PricingProblem):
+class HestonProblem(MonteCarloProblem):
     """Single asset under Heston stochastic volatility."""
 
     name = HESTON
 
-    def __init__(self, market_data, calibration, payoff, simulation, data, heston):
+    def __init__(self, market_data, calibration, config):
         self.market_data = market_data
         self.calibration = calibration
+        self.config = config
         self.params = calibration.params
-        self.payoff = payoff
-        self.simulation = simulation
-        self.data = data
-        self.heston = heston
+        self.payoff = config.payoff
+        self.simulation = config.simulation
+        self.data = config.data
+        self.heston = config.heston
 
         self.model = HestonModel(scheme=EulerMaruyama())
 
     @property
-    def discount_rate(self) -> float:
-        return float(self.params.r)
+    def _budget(self):
+        """Heston steps through time, so it carries its own smaller budget."""
+
+        return self.heston
 
     @property
     def feature_names(self) -> Tuple[str, ...]:
@@ -230,9 +226,7 @@ class HestonProblem(PricingProblem):
         X = u.at[:, 0].set(uniform(u[:, 0], low, high))
         X = X.at[:, 1].set(uniform(u[:, 1], *strike_range(self.market_data)))
         X = X.at[:, 2].set(
-            uniform(
-                u[:, 2], *maturity_range(self.market_data, self.data.min_maturity)
-            )
+            uniform(u[:, 2], *maturity_range(self.market_data, self.data.min_maturity))
         )
 
         for index, value in (
@@ -268,12 +262,6 @@ class HestonProblem(PricingProblem):
             antithetic=self.simulation.antithetic,
             value_fn=lambda state: state[0],
         )
-
-    def label_price_fn(self):
-        return lambda x, key: self._price(x, key, self.heston.num_paths)
-
-    def reference_price(self, x, key):
-        return self._price(x, key, self.heston.reference_paths)
 
     def analytic_price(self, x: jnp.ndarray) -> jnp.ndarray:
         """Fourier inversion: exact up to quadrature, and differentiable."""
@@ -343,11 +331,13 @@ class HestonProblem(PricingProblem):
             ),
         )
 
-    def exposure_strikes(self) -> Dict[str, float]:
-        return moneyness_strikes(float(self.market_data.spot))
-
     def exposure_paths(
-        self, strike, horizon=1.0, num_paths=100, num_steps=252, seed=0,
+        self,
+        strike,
+        horizon=1.0,
+        num_paths=100,
+        num_steps=252,
+        seed=0,
         min_maturity=0.0,
     ):
         paths = self.model.scheme.generate_paths(
@@ -394,7 +384,7 @@ class HestonProblem(PricingProblem):
         }
 
 
-class BasketHestonProblem(PricingProblem):
+class BasketHestonProblem(MonteCarloProblem):
     """
     Basket on correlated Heston assets, every asset sharing the calibrated
     dynamics.
@@ -402,27 +392,28 @@ class BasketHestonProblem(PricingProblem):
 
     name = BASKET_HESTON
 
-    def __init__(
-        self, market_data, calibration, payoff, simulation, data, basket, heston
-    ):
+    def __init__(self, market_data, calibration, config):
         self.market_data = market_data
         self.calibration = calibration
-        self.scalar_params = calibration.params
-        self.payoff = payoff
-        self.simulation = simulation
-        self.data = data
-        self.basket = basket
-        self.heston = heston
+        self.config = config
+        self.single_name_params = calibration.params
+        self.payoff = config.payoff
+        self.simulation = config.simulation
+        self.data = config.data
+        self.basket = config.basket
+        self.heston = config.heston
 
-        self.n_assets = basket.n_assets
+        self.n_assets = config.basket.n_assets
 
         self.weights = (
-            jnp.full(basket.n_assets, 1.0 / basket.n_assets)
-            if basket.weights is None
-            else jnp.asarray(basket.weights)
+            jnp.full(config.basket.n_assets, 1.0 / config.basket.n_assets)
+            if config.basket.weights is None
+            else jnp.asarray(config.basket.weights)
         )
 
-        self.corr = uniform_correlation(basket.n_assets, basket.correlation)
+        self.corr = uniform_correlation(
+            config.basket.n_assets, config.basket.correlation
+        )
 
         self.model = BasketHestonModel(scheme=EulerMaruyama())
 
@@ -438,8 +429,10 @@ class BasketHestonProblem(PricingProblem):
         )
 
     @property
-    def discount_rate(self) -> float:
-        return float(self.params.r)
+    def _budget(self):
+        """Heston steps through time, so it carries its own smaller budget."""
+
+        return self.heston
 
     @property
     def feature_names(self) -> Tuple[str, ...]:
@@ -470,7 +463,7 @@ class BasketHestonProblem(PricingProblem):
     def sample_features(self, u: jnp.ndarray) -> jnp.ndarray:
         low, high = lognormal_spot_range(
             self.market_data,
-            jnp.sqrt(self.scalar_params.theta),
+            jnp.sqrt(self.single_name_params.theta),
             self.data.domain_horizon,
             self.data.domain_n_sigma,
         )
@@ -495,7 +488,7 @@ class BasketHestonProblem(PricingProblem):
         """The simulated state is the spots followed by their variances."""
 
         return jnp.concatenate(
-            [spots, jnp.full(self.n_assets, self.scalar_params.nu0)]
+            [spots, jnp.full(self.n_assets, self.single_name_params.nu0)]
         )
 
     def _price(self, x, key, num_paths):
@@ -518,12 +511,6 @@ class BasketHestonProblem(PricingProblem):
             smooth_fraction=self.payoff.smooth_fraction,
             antithetic=self.simulation.antithetic,
         )
-
-    def label_price_fn(self):
-        return lambda x, key: self._price(x, key, self.heston.num_paths)
-
-    def reference_price(self, x, key):
-        return self._price(x, key, self.heston.reference_paths)
 
     def baseline_features(self) -> jnp.ndarray:
         return jnp.concatenate(
@@ -567,9 +554,7 @@ class BasketHestonProblem(PricingProblem):
         basket = jnp.sum(self.weights * x[: self.n_assets])
 
         return spec.bounds(
-            basket,
-            x[self.n_assets],
-            jnp.exp(-self.params.r * x[self.n_assets + 1]),
+            basket, x[self.n_assets], jnp.exp(-self.params.r * x[self.n_assets + 1])
         )
 
     def shape_constraints(self) -> Tuple[ShapeConstraint, ...]:
@@ -595,11 +580,13 @@ class BasketHestonProblem(PricingProblem):
             ShapeConstraint("T", 0.0, None, "more time cannot be worth less"),
         )
 
-    def exposure_strikes(self) -> Dict[str, float]:
-        return moneyness_strikes(float(self.market_data.spot))
-
     def exposure_paths(
-        self, strike, horizon=1.0, num_paths=100, num_steps=252, seed=0,
+        self,
+        strike,
+        horizon=1.0,
+        num_paths=100,
+        num_steps=252,
+        seed=0,
         min_maturity=0.0,
     ):
         paths = self.model.scheme.generate_paths(
@@ -638,7 +625,9 @@ class BasketHestonProblem(PricingProblem):
             **super().describe(),
             "payoff": self.payoff.name,
             "weights": [float(w) for w in self.weights],
-            "calibration": _calibration_record(self.scalar_params, self.calibration),
+            "calibration": _calibration_record(
+                self.single_name_params, self.calibration
+            ),
             "assumptions": self.calibration.assumptions,
         }
 
@@ -656,30 +645,7 @@ def _calibration_record(params, calibration) -> Dict[str, object]:
     }
 
 
-def _build_heston(config, market_data, calibration) -> PricingProblem:
-    return HestonProblem(
-        market_data=market_data,
-        calibration=calibration,
-        payoff=config.payoff,
-        simulation=config.simulation,
-        data=config.data,
-        heston=config.heston,
-    )
-
-
-def _build_basket_heston(config, market_data, calibration) -> PricingProblem:
-    return BasketHestonProblem(
-        market_data=market_data,
-        calibration=calibration,
-        payoff=config.payoff,
-        simulation=config.simulation,
-        data=config.data,
-        basket=config.basket,
-        heston=config.heston,
-    )
-
-
-register_problem(ProblemSpec(HESTON, _build_heston, calibrate_heston))
+register_problem(ProblemSpec(HESTON, HestonProblem, calibrate_heston))
 register_problem(
-    ProblemSpec(BASKET_HESTON, _build_basket_heston, calibrate_basket_heston)
+    ProblemSpec(BASKET_HESTON, BasketHestonProblem, calibrate_basket_heston)
 )

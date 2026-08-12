@@ -13,30 +13,20 @@ from pipeline.config import ExperimentConfig
 
 
 def evaluate_surrogate(
-    trainer: SobolevTrainer,
-    test_dataset: SobolevDataset,
-    problem: PricingProblem,
+    trainer: SobolevTrainer, test_dataset: SobolevDataset, problem: PricingProblem
 ) -> Dict[str, float]:
 
-    metrics = trainer.evaluate(
-        test_dataset
-    )
+    metrics = trainer.evaluate(test_dataset)
 
-    Visualizer.report_metrics(
-        metrics
-    )
+    Visualizer.report_metrics(metrics)
 
-    report_per_dimension_greeks(
-        trainer.model, test_dataset, problem.feature_names
-    )
+    report_per_dimension_greeks(trainer.model, test_dataset, problem.feature_names)
 
     return metrics
 
 
 def validate_surrogate(
-    surrogate: SurrogateModel,
-    problem: PricingProblem,
-    config: ExperimentConfig,
+    surrogate: SurrogateModel, problem: PricingProblem, config: ExperimentConfig
 ) -> Optional[Dict[str, float]]:
     """Independent benchmark, run for every pricing model alike."""
 
@@ -79,33 +69,20 @@ def report_per_dimension_greeks(
 
 
 def print_example_prediction(
-    surrogate: SurrogateModel,
-    dataset: SobolevDataset,
+    surrogate: SurrogateModel, dataset: SobolevDataset
 ) -> None:
     x = dataset.X[0]
 
     print("\n===== Example =====")
 
-    print(
-        "\nPrice:"
-    )
+    print("\nPrice:")
 
-    print(
-        surrogate.predict_price(x)
-    )
+    print(surrogate.predict_price(x))
 
-    print(
-        "\nGradient:"
-    )
+    print("\nGradient:")
 
-    print(
-        surrogate.predict_gradient(x)
-    )
+    print(surrogate.predict_gradient(x))
 
-    print(
-        "\nHessian:"
-    )
+    print("\nHessian:")
 
-    print(
-        surrogate.predict_hessian(x)
-    )
+    print(surrogate.predict_hessian(x))

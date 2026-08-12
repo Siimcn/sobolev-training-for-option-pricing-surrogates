@@ -49,10 +49,4 @@ def create_sobolev_dataset(
         message=f"Generating data with HVPs for {n_samples} samples...",
     )
 
-    return SobolevDataset(
-        X=X,
-        y=prices,
-        gradients=gradients,
-        hvps=hvps,
-        V=V,
-    )
+    return SobolevDataset(X=X, y=prices, gradients=gradients, hvps=hvps, V=V)

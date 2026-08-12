@@ -20,7 +20,6 @@ from marktsimulation.monte_carlo_pricer import MonteCarloPricer
 from marktsimulation.basket_mc import basket_price, basket_greeks
 from marktsimulation.black_scholes import black_scholes_price_single
 
-
 R = 0.05
 T = 1.0
 K = 100.0
@@ -37,10 +36,7 @@ def _bs_params(sigmas, rho=0.5):
     corr = jnp.full((n, n), rho).at[jnp.diag_indices(n)].set(1.0)
 
     return BasketBlackScholesParams(
-        r=R,
-        sigmas=sigmas,
-        weights=jnp.full(n, 1.0 / n),
-        corr=corr,
+        r=R, sigmas=sigmas, weights=jnp.full(n, 1.0 / n), corr=corr
     )
 
 
@@ -61,8 +57,9 @@ def _heston_model_and_params():
     return model, params
 
 
-def _price(model, params, payoff, s0, key,
-           on_path=False, num_paths=80_000, num_steps=50):
+def _price(
+    model, params, payoff, s0, key, on_path=False, num_paths=80_000, num_steps=50
+):
     """
     Discounted basket price. relu keeps the payoff unbiased for the analytic
     comparisons; basket_mc uses a smooth one for the greeks.
@@ -109,8 +106,13 @@ def test_single_asset_basket_matches_analytic():
     model = _bs_model()
     params = _bs_params([0.2])
 
-    price = _price(model, params, EuropeanCall(strike=K, smooth_fn=relu),
-                   jnp.array([100.0]), jax.random.PRNGKey(0))
+    price = _price(
+        model,
+        params,
+        EuropeanCall(strike=K, smooth_fn=relu),
+        jnp.array([100.0]),
+        jax.random.PRNGKey(0),
+    )
 
     analytic = float(black_scholes_price_single(100.0, K, T, 0.2, R))
 
@@ -121,8 +123,13 @@ def test_perfectly_correlated_basket_matches_vanilla():
     model = _bs_model()
     params = _bs_params([0.2, 0.2], rho=0.999999)
 
-    price = _price(model, params, EuropeanCall(strike=K, smooth_fn=relu),
-                   jnp.array([100.0, 100.0]), jax.random.PRNGKey(0))
+    price = _price(
+        model,
+        params,
+        EuropeanCall(strike=K, smooth_fn=relu),
+        jnp.array([100.0, 100.0]),
+        jax.random.PRNGKey(0),
+    )
 
     analytic = float(black_scholes_price_single(100.0, K, T, 0.2, R))
 
@@ -134,9 +141,13 @@ def test_correlation_increases_basket_call():
     key = jax.random.PRNGKey(7)
 
     prices = [
-        _price(model, _bs_params([0.2, 0.2], rho=rho),
-               EuropeanCall(strike=K, smooth_fn=relu),
-               jnp.array([100.0, 100.0]), key)
+        _price(
+            model,
+            _bs_params([0.2, 0.2], rho=rho),
+            EuropeanCall(strike=K, smooth_fn=relu),
+            jnp.array([100.0, 100.0]),
+            key,
+        )
         for rho in [0.0, 0.5, 0.9]
     ]
 
@@ -160,8 +171,15 @@ def test_heston_basket_runs():
 
     s0 = jnp.array([100.0, 100.0, 0.04, 0.04])
 
-    price = _price(model, params, EuropeanCall(strike=K, smooth_fn=relu),
-                   s0, jax.random.PRNGKey(2), num_paths=50_000, num_steps=100)
+    price = _price(
+        model,
+        params,
+        EuropeanCall(strike=K, smooth_fn=relu),
+        s0,
+        jax.random.PRNGKey(2),
+        num_paths=50_000,
+        num_steps=100,
+    )
 
     assert jnp.isfinite(price)
     assert price > 0.0
@@ -185,8 +203,9 @@ def test_asian_basket_below_european():
     key = jax.random.PRNGKey(3)
 
     euro = _price(model, params, EuropeanCall(strike=K, smooth_fn=relu), s0, key)
-    asian = _price(model, params, AsianCall(strike=K, smooth_fn=relu), s0, key,
-                   on_path=True)
+    asian = _price(
+        model, params, AsianCall(strike=K, smooth_fn=relu), s0, key, on_path=True
+    )
 
     assert jnp.isfinite(asian)
     assert asian > 0.0
@@ -200,10 +219,24 @@ def test_asian_basket_put_call_parity():
     key = jax.random.PRNGKey(3)
     n = 50
 
-    call = _price(model, params, AsianCall(strike=K, smooth_fn=relu), s0, key,
-                  on_path=True, num_steps=n)
-    put = _price(model, params, AsianPut(strike=K, smooth_fn=relu), s0, key,
-                 on_path=True, num_steps=n)
+    call = _price(
+        model,
+        params,
+        AsianCall(strike=K, smooth_fn=relu),
+        s0,
+        key,
+        on_path=True,
+        num_steps=n,
+    )
+    put = _price(
+        model,
+        params,
+        AsianPut(strike=K, smooth_fn=relu),
+        s0,
+        key,
+        on_path=True,
+        num_steps=n,
+    )
 
     forwards = float(jnp.sum(jnp.exp(params.r * (T / n) * jnp.arange(1, n + 1))))
     expected_average = float(jnp.sum(params.weights * s0)) / n * forwards
@@ -221,11 +254,16 @@ def test_basket_greeks_match_finite_differences():
     greeks = basket_greeks(model, params, s0, K, T, key)
 
     h = 0.5
-    bumped = jnp.array([
-        (basket_price(model, params, s0.at[i].add(h), K, T, key)
-         - basket_price(model, params, s0.at[i].add(-h), K, T, key)) / (2 * h)
-        for i in range(2)
-    ])
+    bumped = jnp.array(
+        [
+            (
+                basket_price(model, params, s0.at[i].add(h), K, T, key)
+                - basket_price(model, params, s0.at[i].add(-h), K, T, key)
+            )
+            / (2 * h)
+            for i in range(2)
+        ]
+    )
 
     assert float(jnp.max(jnp.abs(greeks["delta"] - bumped))) < 1e-3
     assert greeks["gamma"].shape == (2, 2)
@@ -235,8 +273,9 @@ def test_basket_delta_bounds():
     model = _bs_model()
     params = _bs_params([0.2, 0.3])
 
-    delta = basket_greeks(model, params, jnp.array([100.0, 100.0]), K, T,
-                          jax.random.PRNGKey(5))["delta"]
+    delta = basket_greeks(
+        model, params, jnp.array([100.0, 100.0]), K, T, jax.random.PRNGKey(5)
+    )["delta"]
 
     assert bool(jnp.all(delta > 0.0))
     assert bool(jnp.all(delta < params.weights))

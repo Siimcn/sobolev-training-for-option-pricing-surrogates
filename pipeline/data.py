@@ -9,10 +9,7 @@ from surrogate_modeling.pricing_problem import PricingProblem
 from pipeline.config import ExperimentConfig
 
 
-def build_dataset(
-    problem: PricingProblem,
-    config: ExperimentConfig,
-) -> SobolevDataset:
+def build_dataset(problem: PricingProblem, config: ExperimentConfig) -> SobolevDataset:
     return create_sobolev_dataset(
         problem,
         config.data.sobolev_order,
@@ -24,14 +21,10 @@ def build_dataset(
 
 
 def plot_training_path_samples(
-    dataset: SobolevDataset,
-    problem: PricingProblem,
-    config: ExperimentConfig,
+    dataset: SobolevDataset, problem: PricingProblem, config: ExperimentConfig
 ) -> None:
 
-    indices = [
-        i for i in config.data.preview_sample_indices if i < len(dataset)
-    ]
+    indices = [i for i in config.data.preview_sample_indices if i < len(dataset)]
 
     if not indices:
         return
@@ -43,20 +36,15 @@ def plot_training_path_samples(
         )
         return
 
-    print(
-        "\nGenerating training Monte Carlo paths..."
-    )
+    print("\nGenerating training Monte Carlo paths...")
 
     for i in indices:
 
         time_grid_train, train_paths = problem.underlying_paths(
-            dataset.X[i],
-            num_paths=config.data.preview_num_paths,
+            dataset.X[i], num_paths=config.data.preview_num_paths
         )
 
-        print(
-            f"\nSample {i}:"
-        )
+        print(f"\nSample {i}:")
 
         for name, value in zip(problem.feature_names, dataset.X[i]):
             print(f"{name:6s}= {float(value):.4f}")
@@ -70,22 +58,14 @@ def plot_training_path_samples(
 
 
 def split_dataset(
-    dataset: SobolevDataset,
-    config: ExperimentConfig,
+    dataset: SobolevDataset, config: ExperimentConfig
 ) -> Tuple[SobolevDataset, SobolevDataset]:
-    train_dataset, test_dataset = (
-        train_test_split(
-            dataset,
-            train_fraction=config.data.train_fraction,
-        )
+    train_dataset, test_dataset = train_test_split(
+        dataset, train_fraction=config.data.train_fraction
     )
 
-    print(
-        f"\nTrain size: {len(train_dataset)}"
-    )
+    print(f"\nTrain size: {len(train_dataset)}")
 
-    print(
-        f"Test size: {len(test_dataset)}"
-    )
+    print(f"Test size: {len(test_dataset)}")
 
     return train_dataset, test_dataset

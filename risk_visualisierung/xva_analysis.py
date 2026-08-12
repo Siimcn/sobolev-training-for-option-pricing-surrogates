@@ -21,9 +21,7 @@ def run_xva_analysis(
     strikes = problem.exposure_strikes()
 
     if not strikes:
-        print(
-            f"\nSkipping XVA: '{problem.name}' declares no exposure strikes."
-        )
+        print(f"\nSkipping XVA: '{problem.name}' declares no exposure strikes.")
         return None
 
     simulated = {
@@ -40,14 +38,11 @@ def run_xva_analysis(
 
     if any(paths is None for paths in simulated.values()):
         print(
-            f"\nSkipping XVA: '{problem.name}' does not implement "
-            f"exposure_paths."
+            f"\nSkipping XVA: '{problem.name}' does not implement " f"exposure_paths."
         )
         return None
 
-    print(
-        "\nGenerating Monte Carlo paths..."
-    )
+    print("\nGenerating Monte Carlo paths...")
 
     time_grid = next(iter(simulated.values()))[0]
 
@@ -70,17 +65,10 @@ def run_xva_analysis(
         _, feature_paths = simulated[label]
 
         xva_k = risk_engine.compute_xva_risk(
-            surrogate,
-            feature_paths,
-            time_grid,
-            problem.discount_rate,
+            surrogate, feature_paths, time_grid, problem.discount_rate
         )
 
-        results[label] = {
-            "K": strike,
-            "xva": xva_k,
-            "features": feature_paths,
-        }
+        results[label] = {"K": strike, "xva": xva_k, "features": feature_paths}
 
         if reference_value_fn is None:
             print(
@@ -91,10 +79,7 @@ def run_xva_analysis(
             continue
 
         xva_reference_k = risk_engine.compute_xva_risk_reference(
-            reference_value_fn,
-            feature_paths,
-            time_grid,
-            problem.discount_rate,
+            reference_value_fn, feature_paths, time_grid, problem.discount_rate
         )
 
         cva_error_k = _relative(xva_k["CVA"], xva_reference_k["CVA"])
@@ -120,23 +105,13 @@ def run_xva_analysis(
 
     xva = primary["xva"]
 
-    Visualizer.plot_mc_paths(
-        time_grid,
-        primary["features"][:, :, 0],
-        num_paths=20,
-    )
+    Visualizer.plot_mc_paths(time_grid, primary["features"][:, :, 0], num_paths=20)
 
-    Visualizer.report_risk_metrics(
-        xva
-    )
+    Visualizer.report_risk_metrics(xva)
 
     _print_primary(primary, reference_value_fn is not None)
 
-    Visualizer.plot_exposure_profiles(
-        time_grid,
-        xva["EPE"],
-        xva["ENE"],
-    )
+    Visualizer.plot_exposure_profiles(time_grid, xva["EPE"], xva["ENE"])
 
     return xva
 

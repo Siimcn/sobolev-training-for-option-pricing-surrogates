@@ -25,7 +25,7 @@ def mc_price(
 
     spec = payoff_spec(payoff)
 
-    dispersion = model.terminal_dispersion(s0, params, maturity)
+    dispersion = jnp.squeeze(model.terminal_dispersion(s0, params, maturity))
 
     payoff_obj = spec.build(
         strike=strike,
@@ -57,10 +57,7 @@ def mc_price(
 
     if blocks is None:
         pricer = MonteCarloPricer(
-            model,
-            payoff_obj,
-            value_fn=value_fn,
-            payoff_on_path=spec.path_dependent,
+            model, payoff_obj, value_fn=value_fn, payoff_on_path=spec.path_dependent
         )
 
         undiscounted = pricer.price(

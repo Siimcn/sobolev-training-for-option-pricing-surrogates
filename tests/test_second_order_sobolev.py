@@ -19,7 +19,6 @@ from surrogate_modeling.sobolev_trainer import SobolevTrainer
 from surrogate_modeling.surrogate_model import SurrogateModel
 from surrogate_modeling.training_config import TrainingConfig
 
-
 D = 4
 X = jnp.linspace(0.6, 1.4, D)
 V = jnp.ones(D) / jnp.sqrt(D)
@@ -61,9 +60,7 @@ def _dataset(n=48, seed=0):
         X=X_data,
         y=jax.vmap(f)(X_data),
         gradients=jax.vmap(jax.grad(f))(X_data),
-        hvps=jax.vmap(
-            lambda x, v: jax.jvp(jax.grad(f), (x,), (v,))[1]
-        )(X_data, V_data),
+        hvps=jax.vmap(lambda x, v: jax.jvp(jax.grad(f), (x,), (v,))[1])(X_data, V_data),
         V=V_data,
     )
 

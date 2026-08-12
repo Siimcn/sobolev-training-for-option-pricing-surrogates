@@ -23,7 +23,6 @@ from surrogate_modeling.sobolev_trainer import SobolevTrainer
 from surrogate_modeling.surrogate_model import SurrogateModel
 from surrogate_modeling.training_config import TrainingConfig
 
-
 D = 3
 
 
@@ -49,21 +48,22 @@ class AttentionNet(eqx.Module):
     norm: eqx.nn.LayerNorm
     head: eqx.nn.Linear
 
-    def __init__(self, in_size, out_size=1, width_size=16, num_heads=2, *, key, **kwargs):
+    def __init__(
+        self, in_size, out_size=1, width_size=16, num_heads=2, *, key, **kwargs
+    ):
         embed_key, attention_key, head_key = jax.random.split(key, 3)
 
         self.embed = eqx.nn.Linear(1, width_size, key=embed_key)
-        self.attention = eqx.nn.MultiheadAttention(num_heads, width_size, key=attention_key)
+        self.attention = eqx.nn.MultiheadAttention(
+            num_heads, width_size, key=attention_key
+        )
         self.norm = eqx.nn.LayerNorm(width_size)
         self.head = eqx.nn.Linear(width_size, out_size, key=head_key)
 
     def __call__(self, x):
         tokens = jax.vmap(self.embed)(x[:, None])
 
-        pooled = jnp.mean(
-            self.attention(tokens, tokens, tokens),
-            axis=0,
-        )
+        pooled = jnp.mean(self.attention(tokens, tokens, tokens), axis=0)
 
         return self.head(jax.nn.softplus(self.norm(pooled)))
 
@@ -291,11 +291,7 @@ def test_surrogate_rejects_non_callable():
 
 def test_residual_mlp_is_twice_differentiable():
     network = ResidualMLP(
-        in_size=D,
-        out_size=1,
-        width_size=16,
-        depth=4,
-        key=jax.random.PRNGKey(0),
+        in_size=D, out_size=1, width_size=16, depth=4, key=jax.random.PRNGKey(0)
     )
 
     hessian = _surrogate(network, _toy_dataset()).predict_hessian(jnp.ones(D))
@@ -342,7 +338,9 @@ def test_foreign_architecture_registers_and_trains():
 
     dataset = _toy_dataset()
 
-    network = build_network("ATTENTION", jax.random.PRNGKey(0), in_size=D, width_size=16)
+    network = build_network(
+        "ATTENTION", jax.random.PRNGKey(0), in_size=D, width_size=16
+    )
 
     trainer = _fit_and_check(_surrogate(network, dataset), dataset)
 

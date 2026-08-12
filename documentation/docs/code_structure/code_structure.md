@@ -43,13 +43,30 @@ The repository is divided into several modules, each with a clearly defined resp
 
 | Module | Responsibility |
 |---------|----------------|
+| `pipeline` | Runs the experiment end to end and holds all configuration. |
 | `marktsimulation` | Generates market and training data. |
-| `surrogate_modeling` | Implements the neural network and training process. |
+| `surrogate_modeling` | Implements the neural network, the training process and the pricing problems. |
 | `kalibrierung` | Performs parameter calibration using market data. |
 | `risk_visualisierung` | Visualizes pricing results and risk analyses. |
 | `utils` | Provides helper functions shared across multiple modules. |
 
 Each module can be developed independently while interacting through clearly defined interfaces.
+
+The dependency direction is strictly one way, and there are no cycles:
+
+```text
+main.py
+   └── pipeline
+         ├── kalibrierung
+         ├── marktsimulation
+         ├── surrogate_modeling ──> kalibrierung, marktsimulation
+         └── risk_visualisierung ──> surrogate_modeling
+```
+
+`pipeline` is the only module that knows the order of the experiment. It never
+asks which model is being priced: every stage takes a `PricingProblem` and asks
+it. That is what makes a new model a local change - see
+*Adding a pricing model*.
 
 ---
 
@@ -82,8 +99,11 @@ The following pages describe the implementation of each module in detail.
 - Calibration
 - Market Simulation
 - Surrogate Modeling
+- Pricing Problems
 - Risk Visualization
 - Utilities
+- Pipeline
+- Adding a pricing model
 
 Each module documentation explains
 

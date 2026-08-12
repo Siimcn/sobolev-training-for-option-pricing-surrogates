@@ -6,6 +6,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# mkdocs build output; docs/ is the source
+documentation/site/
+site/
+
 .cache/
 .DS_Store
 diff-ml-main/

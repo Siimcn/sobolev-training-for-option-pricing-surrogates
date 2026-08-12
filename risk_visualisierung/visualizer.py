@@ -3,11 +3,16 @@ import jax.numpy as jnp
 import numpy as np
 import os
 
+from utils.paths import project_path
+
 import matplotlib
 
-_SHOW_PLOTS = os.environ.get(
-    "SWP_SHOW_PLOTS", "0"
-).strip().lower() in ("1", "true", "yes", "on")
+_SHOW_PLOTS = os.environ.get("SWP_SHOW_PLOTS", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 if not _SHOW_PLOTS:
     matplotlib.use("Agg")
@@ -33,52 +38,34 @@ class Visualizer:
         return f"Input {index}"
 
     @staticmethod
-    def _save(
-        filename: str,
-    ):
+    def _save(filename: str):
 
         if Visualizer.logger is not None:
 
-            save_path = Visualizer.logger.path(
-                filename
-            )
+            save_path = Visualizer.logger.path(filename)
 
         else:
 
-            save_path = os.path.join(
-                "results",
-                filename,
-            )
+            # no logger: still write beside the repository, not beside the
+            # working directory the run happened to start in
+            save_path = project_path("results", filename)
 
-            os.makedirs(
-                "results",
-                exist_ok=True,
-            )
+            save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        plt.savefig(
-            save_path,
-            dpi=300,
-            bbox_inches="tight",
-        )
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
-        print(
-            f"Saved: {save_path}"
-        )
+        print(f"Saved: {save_path}")
 
         if Visualizer.show_plots:
             plt.show()
         plt.close()
 
     @staticmethod
-    def set_logger(
-        logger,
-    ):
+    def set_logger(logger):
         Visualizer.logger = logger
 
     @staticmethod
-    def set_show(
-        show: bool,
-    ):
+    def set_show(show: bool):
         """Turn on-screen display on/off at runtime."""
         Visualizer.show_plots = bool(show)
 
@@ -118,11 +105,19 @@ class Visualizer:
 
         if n_train > 0:
             train_floor = np.maximum(train_values, floor)
-            ax.plot(train_epochs, train_floor, color="tab:blue", alpha=0.25, linewidth=1)
+            ax.plot(
+                train_epochs, train_floor, color="tab:blue", alpha=0.25, linewidth=1
+            )
 
             smoothed = Visualizer._rolling_average(train_floor, smooth_window)
-            smoothed_epochs = train_epochs[n_train - len(smoothed):]
-            ax.plot(smoothed_epochs, smoothed, color="tab:blue", linewidth=2, label=f"Train {label}")
+            smoothed_epochs = train_epochs[n_train - len(smoothed) :]
+            ax.plot(
+                smoothed_epochs,
+                smoothed,
+                color="tab:blue",
+                linewidth=2,
+                label=f"Train {label}",
+            )
 
         if valid_values is not None and len(valid_values) > 0:
             valid_values = np.asarray(valid_values, dtype=float)
@@ -130,11 +125,19 @@ class Visualizer:
             valid_epochs = np.asarray(epochs[:n_valid])
 
             valid_floor = np.maximum(valid_values, floor)
-            ax.plot(valid_epochs, valid_floor, color="tab:orange", alpha=0.25, linewidth=1)
+            ax.plot(
+                valid_epochs, valid_floor, color="tab:orange", alpha=0.25, linewidth=1
+            )
 
             smoothed_v = Visualizer._rolling_average(valid_floor, smooth_window)
-            smoothed_v_epochs = valid_epochs[n_valid - len(smoothed_v):]
-            ax.plot(smoothed_v_epochs, smoothed_v, color="tab:orange", linewidth=2, label=f"Valid {label}")
+            smoothed_v_epochs = valid_epochs[n_valid - len(smoothed_v) :]
+            ax.plot(
+                smoothed_v_epochs,
+                smoothed_v,
+                color="tab:orange",
+                linewidth=2,
+                label=f"Valid {label}",
+            )
 
         ax.set_yscale("log")
         ax.set_xlabel("Epoch")
@@ -158,8 +161,12 @@ class Visualizer:
         fig, axes = plt.subplots(2, 3, figsize=(20, 10))
 
         Visualizer._plot_log_series(
-            axes[0, 0], epochs, train_loss, valid_loss,
-            label="Total Sobolev Loss", smooth_window=smooth_window,
+            axes[0, 0],
+            epochs,
+            train_loss,
+            valid_loss,
+            label="Total Sobolev Loss",
+            smooth_window=smooth_window,
         )
         axes[0, 0].set_title("Total Loss - full range (log scale)")
 
@@ -176,13 +183,28 @@ class Visualizer:
         if len(z_train) > 0:
             ax.plot(z_epochs, z_train, color="tab:blue", alpha=0.25, linewidth=1)
             sm = Visualizer._rolling_average(z_train, smooth_window)
-            ax.plot(z_epochs[len(z_epochs) - len(sm):], sm, color="tab:blue", linewidth=2, label="Train (smoothed)")
+            ax.plot(
+                z_epochs[len(z_epochs) - len(sm) :],
+                sm,
+                color="tab:blue",
+                linewidth=2,
+                label="Train (smoothed)",
+            )
         if len(z_valid) > 0:
-            ax.plot(z_epochs[:len(z_valid)], z_valid, color="tab:orange", alpha=0.25, linewidth=1)
+            ax.plot(
+                z_epochs[: len(z_valid)],
+                z_valid,
+                color="tab:orange",
+                alpha=0.25,
+                linewidth=1,
+            )
             smv = Visualizer._rolling_average(z_valid, smooth_window)
             ax.plot(
-                z_epochs[:len(z_valid)][len(z_valid) - len(smv):], smv,
-                color="tab:orange", linewidth=2, label="Valid (smoothed)",
+                z_epochs[: len(z_valid)][len(z_valid) - len(smv) :],
+                smv,
+                color="tab:orange",
+                linewidth=2,
+                label="Valid (smoothed)",
             )
         ax.set_title(f"Total Loss - zoomed to epoch >= {zoom_start} (linear scale)")
         ax.set_xlabel("Epoch")
@@ -191,8 +213,12 @@ class Visualizer:
         ax.grid(True, alpha=0.3)
 
         Visualizer._plot_log_series(
-            axes[0, 2], epochs, history.get("train_price_rmse", []), history.get("valid_price_rmse", []),
-            label="Price RMSE", smooth_window=smooth_window,
+            axes[0, 2],
+            epochs,
+            history.get("train_price_rmse", []),
+            history.get("valid_price_rmse", []),
+            label="Price RMSE",
+            smooth_window=smooth_window,
         )
         axes[0, 2].set_title("Price RMSE (log scale)")
 
@@ -206,16 +232,18 @@ class Visualizer:
 
             train_vals = history.get(train_key, [])
 
-            is_unused = len(train_vals) == 0 or all(
-                float(v) == 0.0 for v in train_vals
-            )
+            is_unused = len(train_vals) == 0 or all(float(v) == 0.0 for v in train_vals)
 
             if is_unused:
                 ax.text(
-                    0.5, 0.5,
+                    0.5,
+                    0.5,
                     f"{label}\nnot part of the training objective\nin this run (sobolev_order too low)",
-                    ha="center", va="center", transform=ax.transAxes,
-                    fontsize=11, color="gray",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=11,
+                    color="gray",
                 )
                 ax.set_title(f"{label} (not used)")
                 ax.set_xticks([])
@@ -224,25 +252,22 @@ class Visualizer:
                     spine.set_color("lightgray")
             else:
                 Visualizer._plot_log_series(
-                    ax, epochs, train_vals, history.get(valid_key, []),
-                    label=label, smooth_window=smooth_window,
+                    ax,
+                    epochs,
+                    train_vals,
+                    history.get(valid_key, []),
+                    label=label,
+                    smooth_window=smooth_window,
                 )
                 ax.set_title(f"{label} (log scale, train vs. valid)")
 
         fig.suptitle("Sobolev Training Diagnostics", fontsize=14)
         plt.tight_layout()
 
-        Visualizer._save(
-            filename
-        )
+        Visualizer._save(filename)
 
     @staticmethod
-    def plot_mc_paths(
-        time_grid,
-        paths,
-        num_paths=20,
-        filename: str = "mc_paths.png"
-    ):
+    def plot_mc_paths(time_grid, paths, num_paths=20, filename: str = "mc_paths.png"):
 
         plt.figure(figsize=(10, 6))
 
@@ -251,11 +276,7 @@ class Visualizer:
         if sample_paths.ndim == 3:
             sample_paths = sample_paths[:, :, 0]
 
-        plt.plot(
-            np.asarray(time_grid),
-            np.asarray(sample_paths.T),
-            alpha=0.6,
-        )
+        plt.plot(np.asarray(time_grid), np.asarray(sample_paths.T), alpha=0.6)
 
         plt.xlabel("Time")
         plt.ylabel("Asset Price")
@@ -274,41 +295,22 @@ class Visualizer:
     ):
 
         true_prices = np.asarray(true_prices)
-        predicted_prices = np.asarray(
-            predicted_prices
-        )
+        predicted_prices = np.asarray(predicted_prices)
 
         plt.figure(figsize=(7, 7))
 
-        plt.scatter(
-            true_prices,
-            predicted_prices,
-            alpha=0.4,
-        )
+        plt.scatter(true_prices, predicted_prices, alpha=0.4)
 
-        lo = min(
-            true_prices.min(),
-            predicted_prices.min(),
-        )
+        lo = min(true_prices.min(), predicted_prices.min())
 
-        hi = max(
-            true_prices.max(),
-            predicted_prices.max(),
-        )
+        hi = max(true_prices.max(), predicted_prices.max())
 
-        plt.plot(
-            [lo, hi],
-            [lo, hi],
-            "r--",
-            linewidth=2,
-        )
+        plt.plot([lo, hi], [lo, hi], "r--", linewidth=2)
 
         plt.xlabel("True Prices")
         plt.ylabel("Predicted Prices")
 
-        plt.title(
-            "Surrogate vs Ground Truth"
-        )
+        plt.title("Surrogate vs Ground Truth")
 
         plt.grid(True)
 
@@ -320,36 +322,18 @@ class Visualizer:
         time_grid: jnp.ndarray,
         epe: jnp.ndarray,
         ene: jnp.ndarray,
-        filename: str = "exposure_profiles.png"
+        filename: str = "exposure_profiles.png",
     ):
 
         plt.figure(figsize=(10, 5))
 
-        plt.plot(
-            time_grid,
-            epe,
-            label="EPE",
-            linewidth=2,
-        )
+        plt.plot(time_grid, epe, label="EPE", linewidth=2)
 
-        plt.plot(
-            time_grid,
-            ene,
-            label="ENE",
-            linewidth=2,
-        )
+        plt.plot(time_grid, ene, label="ENE", linewidth=2)
 
-        plt.fill_between(
-            np.asarray(time_grid),
-            np.asarray(epe),
-            alpha=0.2,
-        )
+        plt.fill_between(np.asarray(time_grid), np.asarray(epe), alpha=0.2)
 
-        plt.fill_between(
-            np.asarray(time_grid),
-            np.asarray(ene),
-            alpha=0.2,
-        )
+        plt.fill_between(np.asarray(time_grid), np.asarray(ene), alpha=0.2)
 
         plt.xlabel("Time")
         plt.ylabel("Exposure")
@@ -376,60 +360,30 @@ class Visualizer:
     ):
         """A 2-D slice through the surrogate's input space."""
 
-        x = jnp.linspace(
-            x_range[0],
-            x_range[1],
-            grid_points,
-        )
+        x = jnp.linspace(x_range[0], x_range[1], grid_points)
 
-        y = jnp.linspace(
-            y_range[0],
-            y_range[1],
-            grid_points,
-        )
+        y = jnp.linspace(y_range[0], y_range[1], grid_points)
 
         X, Y = jnp.meshgrid(x, y)
 
         X_flat = X.reshape(-1)
         Y_flat = Y.reshape(-1)
 
-        inputs = jnp.tile(
-            fixed_input,
-            (len(X_flat), 1),
-        )
+        inputs = jnp.tile(fixed_input, (len(X_flat), 1))
 
-        inputs = inputs.at[:, x_idx].set(
-            X_flat
-        )
+        inputs = inputs.at[:, x_idx].set(X_flat)
 
-        inputs = inputs.at[:, y_idx].set(
-            Y_flat
-        )
+        inputs = inputs.at[:, y_idx].set(Y_flat)
 
-        Z = jax.vmap(
-            surrogate.predict_price
-        )(inputs)
+        Z = jax.vmap(surrogate.predict_price)(inputs)
 
-        Z = Z.reshape(
-            grid_points,
-            grid_points,
-        )
+        Z = Z.reshape(grid_points, grid_points)
 
-        fig = plt.figure(
-            figsize=(10, 7)
-        )
+        fig = plt.figure(figsize=(10, 7))
 
-        ax = fig.add_subplot(
-            111,
-            projection="3d",
-        )
+        ax = fig.add_subplot(111, projection="3d")
 
-        ax.plot_surface(
-            np.asarray(X),
-            np.asarray(Y),
-            np.asarray(Z),
-            cmap="viridis",
-        )
+        ax.plot_surface(np.asarray(X), np.asarray(Y), np.asarray(Z), cmap="viridis")
 
         x_label = Visualizer._feature_label(feature_labels, x_idx)
         y_label = Visualizer._feature_label(feature_labels, y_idx)
@@ -439,41 +393,29 @@ class Visualizer:
 
         ax.set_zlabel("Price")
 
-        ax.set_title(
-            f"Option Price Surface: {x_label} vs {y_label}"
-        )
+        ax.set_title(f"Option Price Surface: {x_label} vs {y_label}")
 
         plt.tight_layout()
         Visualizer._save(filename)
 
     @staticmethod
-    def report_risk_metrics(
-        metrics: Dict,
-    ):
+    def report_risk_metrics(metrics: Dict):
 
         print("\n")
         print("=" * 50)
         print("RISK REPORT")
         print("=" * 50)
 
-        print(
-            f"CVA     : {metrics['CVA']:.6e}"
-        )
+        print(f"CVA     : {metrics['CVA']:.6e}")
 
-        print(
-            f"DVA     : {metrics['DVA']:.6e}"
-        )
+        print(f"DVA     : {metrics['DVA']:.6e}")
 
-        print(
-            f"Net XVA : {metrics['NetXVA']:.6e}"
-        )
+        print(f"Net XVA : {metrics['NetXVA']:.6e}")
 
         print("=" * 50)
 
     @staticmethod
-    def report_metrics(
-        metrics: Dict,
-    ):
+    def report_metrics(metrics: Dict):
 
         print("\n")
         print("=" * 50)
@@ -482,13 +424,7 @@ class Visualizer:
 
         for key, value in metrics.items():
 
-            if isinstance(
-                value,
-                (float, np.floating),
-            ):
-                print(
-                    f"{key:30s}: "
-                    f"{value:.6e}"
-                )
+            if isinstance(value, (float, np.floating)):
+                print(f"{key:30s}: " f"{value:.6e}")
 
         print("=" * 50)

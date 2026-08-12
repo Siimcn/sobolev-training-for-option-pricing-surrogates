@@ -2,7 +2,6 @@ import jax.numpy as jnp
 
 from typing import Dict
 
-
 """
 Shared helpers for mapping a uniform block onto a sampling domain.
 """
@@ -54,10 +53,7 @@ def maturity_range(market_data, min_maturity):
 
 
 def strike_range(market_data):
-    return (
-        float(jnp.min(market_data.strikes)),
-        float(jnp.max(market_data.strikes)),
-    )
+    return (float(jnp.min(market_data.strikes)), float(jnp.max(market_data.strikes)))
 
 
 def moneyness_strikes(spot: float) -> Dict[str, float]:

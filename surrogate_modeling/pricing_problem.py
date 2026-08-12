@@ -6,9 +6,11 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
+from surrogate_modeling.domain import moneyness_strikes
 
 __all__ = [
     "CalibrationResult",
+    "MonteCarloProblem",
     "calibration_residuals",
     "PricingProblem",
     "ProblemSpec",
@@ -45,17 +47,12 @@ def calibration_residuals(pricing_fn, params, market_data) -> Dict[str, float]:
     """How well the fitted parameters reproduce the instruments they were fitted to."""
 
     model_prices = pricing_fn(
-        params,
-        market_data.strikes,
-        market_data.maturities,
-        market_data.is_call,
+        params, market_data.strikes, market_data.maturities, market_data.is_call
     )
 
     residual = model_prices - market_data.market_prices
 
-    relative = jnp.abs(residual) / jnp.maximum(
-        jnp.abs(market_data.market_prices), 1e-8
-    )
+    relative = jnp.abs(residual) / jnp.maximum(jnp.abs(market_data.market_prices), 1e-8)
 
     return {
         "n_instruments": int(len(market_data.strikes)),
@@ -109,12 +106,7 @@ class PricingProblem(ABC):
     def feature_bounds(self) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Per-feature (low, high) of the training domain."""
 
-        corners = jnp.stack(
-            [
-                jnp.zeros(self.n_features),
-                jnp.ones(self.n_features),
-            ]
-        )
+        corners = jnp.stack([jnp.zeros(self.n_features), jnp.ones(self.n_features)])
 
         bounds = self.sample_features(corners)
 
@@ -123,9 +115,7 @@ class PricingProblem(ABC):
     def baseline_features(self) -> jnp.ndarray:
         """A representative in-domain point; the anchor of every surface slice."""
 
-        return self.sample_features(
-            jnp.full((1, self.n_features), 0.5)
-        )[0]
+        return self.sample_features(jnp.full((1, self.n_features), 0.5))[0]
 
     def surface_specs(self) -> Tuple[SurfaceSpec, ...]:
         """Which 2-D slices are worth plotting, with ranges from the domain."""
@@ -145,9 +135,7 @@ class PricingProblem(ABC):
         )
 
     def underlying_paths(
-        self,
-        x: jnp.ndarray,
-        num_paths: int = 100,
+        self, x: jnp.ndarray, num_paths: int = 100
     ) -> Optional[Tuple[jnp.ndarray, jnp.ndarray]]:
         """
         `(time_grid, paths)` of whatever the option is written on, for one
@@ -156,24 +144,17 @@ class PricingProblem(ABC):
 
         return None
 
-    def reference_points(
-        self,
-        n_points: int = 256,
-        seed: int = 12345,
-    ) -> jnp.ndarray:
+    def reference_points(self, n_points: int = 256, seed: int = 12345) -> jnp.ndarray:
         """In-domain points for the independent benchmark."""
 
         u = jax.random.uniform(
-            jax.random.PRNGKey(seed),
-            shape=(n_points, self.n_features),
+            jax.random.PRNGKey(seed), shape=(n_points, self.n_features)
         )
 
         return self.sample_features(u)
 
     def reference_price(
-        self,
-        x: jnp.ndarray,
-        key: jnp.ndarray,
+        self, x: jnp.ndarray, key: jnp.ndarray
     ) -> Optional[jnp.ndarray]:
         """
         Re-price x by Monte Carlo with an independent `key`, at higher accuracy
@@ -187,10 +168,7 @@ class PricingProblem(ABC):
 
         return None
 
-    def arbitrage_bounds(
-        self,
-        x: jnp.ndarray,
-    ) -> Optional[Tuple[float, float]]:
+    def arbitrage_bounds(self, x: jnp.ndarray) -> Optional[Tuple[float, float]]:
         """Model-free (lower, upper) bounds on the price at x."""
 
         return None
@@ -245,9 +223,40 @@ class PricingProblem(ABC):
         }
 
 
+class MonteCarloProblem(PricingProblem):
+    """
+    A `PricingProblem` whose labels come from Monte Carlo.
+    """
+
+    @property
+    def _budget(self):
+        """
+        Config block holding `num_paths` and `reference_paths`.
+        """
+
+        return self.simulation
+
+    @abstractmethod
+    def _price(self, x, key, num_paths):
+        """One Monte Carlo price at feature row `x`, twice differentiable in x."""
+
+    @property
+    def discount_rate(self) -> float:
+        return float(self.params.r)
+
+    def exposure_strikes(self) -> Dict[str, float]:
+        return moneyness_strikes(float(self.market_data.spot))
+
+    def label_price_fn(self):
+        return lambda x, key: self._price(x, key, self._budget.num_paths)
+
+    def reference_price(self, x, key):
+        return self._price(x, key, self._budget.reference_paths)
+
+
 @dataclass(frozen=True)
 class ShapeConstraint:
-    """"d(price)/d(feature) must be within [low, high]"."""
+    """ "d(price)/d(feature) must be within [low, high]"."""
 
     feature: str
     low: Optional[float] = None
@@ -257,7 +266,9 @@ class ShapeConstraint:
 
 @dataclass(frozen=True)
 class ProblemSpec:
-    """A registered pricing problem: how to calibrate it, and how to build it."""
+    """
+    A registered pricing problem: the class, and how to calibrate it.
+    """
 
     name: str
     build: Callable[..., PricingProblem]

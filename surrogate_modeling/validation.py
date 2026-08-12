@@ -86,9 +86,7 @@ def _price_report(label, predicted, reference, points) -> Dict[str, float]:
 
     smape = 100 * float(
         jnp.mean(
-            2.0
-            * jnp.abs(error)
-            / (jnp.abs(predicted) + jnp.abs(reference) + 1e-8)
+            2.0 * jnp.abs(error) / (jnp.abs(predicted) + jnp.abs(reference) + 1e-8)
         )
     )
 
@@ -148,9 +146,7 @@ def _check_arbitrage(surrogate, problem, points, tolerance_sigma) -> Dict[str, f
     noise = _reference_noise(problem, points)
     tolerance = tolerance_sigma * noise
 
-    breach = jnp.maximum(
-        jnp.maximum(lower - predicted, predicted - upper), 0.0
-    )
+    breach = jnp.maximum(jnp.maximum(lower - predicted, predicted - upper), 0.0)
 
     violated = breach > tolerance
 
@@ -221,8 +217,14 @@ def _check_shape(surrogate, problem, points) -> Dict[str, float]:
     for constraint in constraints:
         column = gradients[:, names.index(constraint.feature)]
 
-        below = 0.0 if constraint.low is None else jnp.maximum(constraint.low - column, 0.0)
-        above = 0.0 if constraint.high is None else jnp.maximum(column - constraint.high, 0.0)
+        below = (
+            0.0 if constraint.low is None else jnp.maximum(constraint.low - column, 0.0)
+        )
+        above = (
+            0.0
+            if constraint.high is None
+            else jnp.maximum(column - constraint.high, 0.0)
+        )
 
         excess = jnp.maximum(below, above)
 
@@ -297,7 +299,9 @@ def _check_comonotonic_limit(problem, points) -> Dict[str, float]:
     n_assets = len(problem.exchangeable_features) or 1
 
     collapsed = points.at[:, :n_assets].set(
-        jnp.repeat(jnp.mean(points[:, :n_assets], axis=1, keepdims=True), n_assets, axis=1)
+        jnp.repeat(
+            jnp.mean(points[:, :n_assets], axis=1, keepdims=True), n_assets, axis=1
+        )
     )
 
     key = jax.random.PRNGKey(97531)

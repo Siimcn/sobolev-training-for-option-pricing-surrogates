@@ -21,10 +21,7 @@ class SobolevDataset(eqx.Module):
     def input_dim(self) -> int:
         return self.X.shape[1]
 
-    def get_batch(
-        self,
-        indices: jnp.ndarray,
-    ):
+    def get_batch(self, indices: jnp.ndarray):
         X_batch = self.X[indices]
         y_batch = self.y[indices]
 
@@ -33,16 +30,11 @@ class SobolevDataset(eqx.Module):
         V_batch = self.V[indices] if self.V is not None else None
 
         return X_batch, y_batch, grad_batch, hvp_batch, V_batch
-    
+
 
 class DataLoader:
 
-    def __init__(
-        self,
-        dataset: SobolevDataset,
-        batch_size: int,
-        shuffle: bool = True,
-    ):
+    def __init__(self, dataset: SobolevDataset, batch_size: int, shuffle: bool = True):
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -58,70 +50,37 @@ class DataLoader:
 
         for start in range(0, n, self.batch_size):
 
-            end = min(
-                start + self.batch_size,
-                n,
-            )
+            end = min(start + self.batch_size, n)
 
             batch_indices = indices[start:end]
 
-            yield self.dataset.get_batch(
-                batch_indices
-            )
-    
+            yield self.dataset.get_batch(batch_indices)
 
-def train_test_split(
-    dataset,
-    train_fraction=0.8,
-):
+
+def train_test_split(dataset, train_fraction=0.8):
 
     n = len(dataset)
 
-    n_train = int(
-        train_fraction * n
-    )
+    n_train = int(train_fraction * n)
 
     train_dataset = SobolevDataset(
         X=dataset.X[:n_train],
         y=dataset.y[:n_train],
         gradients=(
-            dataset.gradients[:n_train]
-            if dataset.gradients is not None
-            else None
+            dataset.gradients[:n_train] if dataset.gradients is not None else None
         ),
-        hvps=(
-            dataset.hvps[:n_train]
-            if dataset.hvps is not None
-            else None
-        ),
-        V=(
-            dataset.V[:n_train]
-            if getattr(dataset, "V", None) is not None
-            else None
-        ),
+        hvps=(dataset.hvps[:n_train] if dataset.hvps is not None else None),
+        V=(dataset.V[:n_train] if getattr(dataset, "V", None) is not None else None),
     )
 
     test_dataset = SobolevDataset(
         X=dataset.X[n_train:],
         y=dataset.y[n_train:],
         gradients=(
-            dataset.gradients[n_train:]
-            if dataset.gradients is not None
-            else None
+            dataset.gradients[n_train:] if dataset.gradients is not None else None
         ),
-        hvps=(
-            dataset.hvps[n_train:]
-            if dataset.hvps is not None
-            else None
-        ),
-        V=(
-            dataset.V[n_train:]
-            if getattr(dataset, "V", None) is not None
-            else None
-        ),
+        hvps=(dataset.hvps[n_train:] if dataset.hvps is not None else None),
+        V=(dataset.V[n_train:] if getattr(dataset, "V", None) is not None else None),
     )
 
-    return (
-        train_dataset,
-        test_dataset,
-    )
+    return (train_dataset, test_dataset)

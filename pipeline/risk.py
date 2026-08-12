@@ -9,9 +9,7 @@ from pipeline.config import ExperimentConfig
 
 
 def run_risk_analysis(
-    surrogate: SurrogateModel,
-    problem: PricingProblem,
-    config: ExperimentConfig,
+    surrogate: SurrogateModel, problem: PricingProblem, config: ExperimentConfig
 ) -> Optional[Dict[str, float]]:
     """
     Returns None when the stage is switched off or the problem cannot simulate

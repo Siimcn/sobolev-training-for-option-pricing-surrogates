@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -13,6 +14,7 @@ from marktsimulation.pricing_model import BlackScholesParams
 from pipeline.config import BasketConfig, DataConfig, ExperimentConfig
 from surrogate_modeling.pricing_problem import CalibrationResult, build_problem
 from surrogate_modeling.training_config import TrainingConfig
+from utils.paths import PROJECT_ROOT, project_path
 from utils.experiment_logger import ExperimentLogger, LoggerWriter
 
 
@@ -69,8 +71,36 @@ def test_run_directory_is_created_under_base_dir():
 
 
 def test_path_joins_into_the_run_directory():
+    """
+    Compared as paths, not as strings: `path()` returns a `pathlib.Path` so
+    that callers work regardless of the platform separator.
+    """
+
     with _logger() as (logger, _):
-        assert logger.path("a.png") == os.path.join(logger.output_dir, "a.png")
+        assert Path(logger.path("a.png")) == Path(logger.output_dir) / "a.png"
+
+
+def test_output_directory_does_not_depend_on_the_working_directory(tmp_path):
+    """
+    A run launched from anywhere writes to the same place. `results/` used to
+    be resolved against `os.getcwd()`, so starting the pipeline from another
+    directory scattered the artifacts.
+    """
+
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        assert project_path("results") == PROJECT_ROOT / "results"
+        assert project_path("results").is_absolute()
+    finally:
+        os.chdir(cwd)
+
+
+def test_project_path_lets_an_absolute_base_win(tmp_path):
+    """A caller that already knows where it wants to write is not overridden."""
+
+    assert project_path(str(tmp_path), "run") == tmp_path / "run"
 
 
 def test_stdout_is_teed_into_the_console_log():
@@ -160,9 +190,7 @@ def test_save_metrics_coerces_values_to_json():
 
 def test_save_xva_drops_non_numeric_entries():
     with _logger() as (logger, _):
-        logger.save_xva(
-            {"CVA": 1.0, "DVA": 0.25, "NetXVA": 0.75, "EPE": jnp.ones(4)}
-        )
+        logger.save_xva({"CVA": 1.0, "DVA": 0.25, "NetXVA": 0.75, "EPE": jnp.ones(4)})
 
         saved = _read_json(logger.path("xva.json"))
 
@@ -231,7 +259,9 @@ def test_two_pricing_models_no_longer_share_a_config_file():
     basket_dict = basket.to_dict(_problem(basket))
 
     assert bs_dict != basket_dict
-    assert bs_dict["derived"]["feature_names"] != basket_dict["derived"]["feature_names"]
+    assert (
+        bs_dict["derived"]["feature_names"] != basket_dict["derived"]["feature_names"]
+    )
 
 
 def test_config_without_a_problem_omits_the_derived_block():

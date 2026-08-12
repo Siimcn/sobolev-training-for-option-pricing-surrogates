@@ -22,9 +22,9 @@ from marktsimulation.black_scholes import (
     gamma,
     vega,
 )
+from conftest import bs_mc_feature_price
 from marktsimulation.black_scholes_mc import (
     MC_NUM_STEPS,
-    bs_mc_price,
     simulate_terminal,
     generate_training_paths,
 )
@@ -44,7 +44,6 @@ from marktsimulation.pricing_model import (
     BlackScholesParams,
 )
 from marktsimulation.timesteppingscheme import EulerMaruyama, Milstein
-
 
 S0, K, T, SIGMA, R = 100.0, 100.0, 1.0, 0.2, 0.05
 
@@ -73,8 +72,7 @@ def test_price_above_intrinsic_and_below_spot():
 
 def test_price_increases_with_volatility():
     prices = [
-        float(black_scholes_price_single(S0, K, T, s, R))
-        for s in [0.1, 0.2, 0.4, 0.8]
+        float(black_scholes_price_single(S0, K, T, s, R)) for s in [0.1, 0.2, 0.4, 0.8]
     ]
 
     assert all(a < b for a, b in zip(prices, prices[1:]))
@@ -97,7 +95,11 @@ def test_vectorized_pricing_matches_single():
 
     for i in range(3):
         single = black_scholes_price_single(
-            S0, float(strikes[i]), float(maturities[i]), SIGMA, R,
+            S0,
+            float(strikes[i]),
+            float(maturities[i]),
+            SIGMA,
+            R,
             is_call=bool(is_call[i]),
         )
         assert abs(float(vector[i]) - float(single)) < 1e-12
@@ -153,8 +155,14 @@ def test_schemes_keep_shape_and_initial_state():
     s0 = jnp.array([S0])
 
     paths = model.scheme.generate_paths(
-        s0=s0, drift_fn=model.drift, diffusion_fn=model.diffusion, params=params,
-        key=jax.random.PRNGKey(0), num_paths=32, num_steps=10, dt=T / 10,
+        s0=s0,
+        drift_fn=model.drift,
+        diffusion_fn=model.diffusion,
+        params=params,
+        key=jax.random.PRNGKey(0),
+        num_paths=32,
+        num_steps=10,
+        dt=T / 10,
     )
 
     assert paths.shape == (32, 11, 1)
@@ -177,8 +185,14 @@ def test_milstein_is_more_accurate_than_euler_on_gbm():
         model = BlackScholesModel(scheme=scheme)
 
         paths = scheme.generate_paths(
-            s0=s0, drift_fn=model.drift, diffusion_fn=model.diffusion,
-            params=params, key=key, num_paths=num_paths, num_steps=num_steps, dt=dt,
+            s0=s0,
+            drift_fn=model.drift,
+            diffusion_fn=model.diffusion,
+            params=params,
+            key=key,
+            num_paths=num_paths,
+            num_steps=num_steps,
+            dt=dt,
         )
 
         errors[name] = float(jnp.mean(jnp.abs(paths[:, -1, 0] - exact)))
@@ -191,9 +205,14 @@ def test_discounted_spot_is_a_martingale():
     params = BlackScholesParams(r=R, sigma=SIGMA)
 
     paths = model.scheme.generate_paths(
-        s0=jnp.array([S0]), drift_fn=model.drift, diffusion_fn=model.diffusion,
-        params=params, key=jax.random.PRNGKey(1), num_paths=60_000,
-        num_steps=50, dt=T / 50,
+        s0=jnp.array([S0]),
+        drift_fn=model.drift,
+        diffusion_fn=model.diffusion,
+        params=params,
+        key=jax.random.PRNGKey(1),
+        num_paths=60_000,
+        num_steps=50,
+        dt=T / 50,
     )
 
     discounted = float(jnp.mean(paths[:, -1, 0]) * jnp.exp(-R * T))
@@ -207,9 +226,14 @@ def test_correlation_matrix_is_applied_to_the_increments():
     params = BachelierParams(sigma=1.0)
 
     paths = model.scheme.generate_paths(
-        s0=jnp.zeros(2), drift_fn=model.drift, diffusion_fn=model.diffusion,
-        params=params, key=jax.random.PRNGKey(2), num_paths=40_000,
-        num_steps=20, dt=T / 20,
+        s0=jnp.zeros(2),
+        drift_fn=model.drift,
+        diffusion_fn=model.diffusion,
+        params=params,
+        key=jax.random.PRNGKey(2),
+        num_paths=40_000,
+        num_steps=20,
+        dt=T / 20,
         corr=jnp.array([[1.0, rho], [rho, 1.0]]),
     )
 
@@ -223,9 +247,14 @@ def test_uncorrelated_by_default():
     model = BachelierModel(scheme=EulerMaruyama())
 
     paths = model.scheme.generate_paths(
-        s0=jnp.zeros(2), drift_fn=model.drift, diffusion_fn=model.diffusion,
-        params=BachelierParams(sigma=1.0), key=jax.random.PRNGKey(3),
-        num_paths=40_000, num_steps=20, dt=T / 20,
+        s0=jnp.zeros(2),
+        drift_fn=model.drift,
+        diffusion_fn=model.diffusion,
+        params=BachelierParams(sigma=1.0),
+        key=jax.random.PRNGKey(3),
+        num_paths=40_000,
+        num_steps=20,
+        dt=T / 20,
     )
 
     assert abs(float(jnp.corrcoef(paths[:, -1, :].T)[0, 1])) < 0.02
@@ -289,8 +318,12 @@ def test_monte_carlo_pricer_matches_analytic_call():
     pricer = MonteCarloPricer(model, EuropeanCall(strike=K, smooth_fn=relu))
 
     undiscounted = pricer.price(
-        s0=jnp.array([S0]), params=params, maturity=T,
-        num_paths=80_000, num_steps=50, key=jax.random.PRNGKey(0),
+        s0=jnp.array([S0]),
+        params=params,
+        maturity=T,
+        num_paths=80_000,
+        num_steps=50,
+        key=jax.random.PRNGKey(0),
     )
 
     price = float(undiscounted * jnp.exp(-R * T))
@@ -304,18 +337,23 @@ def test_value_fn_selects_the_underlying():
     params = BlackScholesParams(r=R, sigma=SIGMA)
 
     doubled = MonteCarloPricer(
-        model, EuropeanCall(strike=2 * K, smooth_fn=relu),
-        value_fn=lambda s: 2.0 * s[0],
+        model, EuropeanCall(strike=2 * K, smooth_fn=relu), value_fn=lambda s: 2.0 * s[0]
     ).price(
-        s0=jnp.array([S0]), params=params, maturity=T,
-        num_paths=20_000, num_steps=25, key=jax.random.PRNGKey(0),
+        s0=jnp.array([S0]),
+        params=params,
+        maturity=T,
+        num_paths=20_000,
+        num_steps=25,
+        key=jax.random.PRNGKey(0),
     )
 
-    plain = MonteCarloPricer(
-        model, EuropeanCall(strike=K, smooth_fn=relu)
-    ).price(
-        s0=jnp.array([S0]), params=params, maturity=T,
-        num_paths=20_000, num_steps=25, key=jax.random.PRNGKey(0),
+    plain = MonteCarloPricer(model, EuropeanCall(strike=K, smooth_fn=relu)).price(
+        s0=jnp.array([S0]),
+        params=params,
+        maturity=T,
+        num_paths=20_000,
+        num_steps=25,
+        key=jax.random.PRNGKey(0),
     )
 
     assert abs(float(doubled) - 2.0 * float(plain)) < 1e-8
@@ -326,14 +364,14 @@ def test_bs_mc_price_matches_analytic_and_is_reproducible():
 
     key = jax.random.PRNGKey(0)
 
-    first = float(bs_mc_price(x, key))
-    second = float(bs_mc_price(x, key))
+    first = float(bs_mc_feature_price(x, key))
+    second = float(bs_mc_feature_price(x, key))
     analytic = float(black_scholes_price_single(S0, K, T, SIGMA, R))
 
     assert first == second, "the same key must give the same label"
     assert abs(first - analytic) < 0.5
 
-    fresh = float(bs_mc_price(x, jax.random.PRNGKey(123)))
+    fresh = float(bs_mc_feature_price(x, jax.random.PRNGKey(123)))
 
     assert fresh != first, "a different key must re-draw the paths"
     assert abs(fresh - analytic) < 0.5
@@ -343,7 +381,7 @@ def test_exact_terminal_sampling_is_unbiased():
     x = jnp.array([S0, K, T, SIGMA, R])
 
     prices = jnp.array(
-        [float(bs_mc_price(x, jax.random.PRNGKey(s))) for s in range(24)]
+        [float(bs_mc_feature_price(x, jax.random.PRNGKey(s))) for s in range(24)]
     )
 
     analytic = float(black_scholes_price_single(S0, K, T, SIGMA, R))
@@ -362,7 +400,7 @@ def test_antithetic_sampling_reduces_variance():
                 jnp.array(
                     [
                         float(
-                            bs_mc_price(
+                            bs_mc_feature_price(
                                 x,
                                 jax.random.PRNGKey(s),
                                 num_paths=4_000,
@@ -396,7 +434,7 @@ def test_terminal_draws_are_lognormal_with_the_right_moments():
 def test_mc_delta_matches_analytic():
     x = jnp.array([S0, K, T, SIGMA, R])
 
-    mc_delta = float(jax.grad(bs_mc_price)(x, jax.random.PRNGKey(0))[0])
+    mc_delta = float(jax.grad(bs_mc_feature_price)(x, jax.random.PRNGKey(0))[0])
 
     assert abs(mc_delta - float(delta(S0, K, T, SIGMA, R))) < 0.05
 
@@ -418,9 +456,11 @@ def test_hvp_dataset_respects_sobolev_order():
     V = jnp.tile(jnp.eye(5)[0], (2, 1))
     keys = label_keys(0, 2)
 
-    price_fn = lambda x, key: bs_mc_price(x, key, num_paths=2_000)
+    price_fn = lambda x, key: bs_mc_feature_price(x, key, num_paths=2_000)
 
-    prices, gradients, hvps = create_sobolev_labels(price_fn, X, V, keys, sobolev_order=2)
+    prices, gradients, hvps = create_sobolev_labels(
+        price_fn, X, V, keys, sobolev_order=2
+    )
 
     assert prices.shape == (2,)
     assert gradients.shape == (2, 5)
@@ -450,8 +490,11 @@ def test_labels_reject_a_key_count_mismatch():
 
     try:
         create_sobolev_labels(
-            lambda x, key: bs_mc_price(x, key, num_paths=500),
-            X, V, label_keys(0, 2), sobolev_order=1,
+            lambda x, key: bs_mc_feature_price(x, key, num_paths=500),
+            X,
+            V,
+            label_keys(0, 2),
+            sobolev_order=1,
         )
     except ValueError as e:
         assert "one key per sample" in str(e)

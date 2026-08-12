@@ -30,7 +30,6 @@ from pipeline.config import (
 from surrogate_modeling.pricing_problem import CalibrationResult, build_problem
 from surrogate_modeling.surrogate_model import SurrogateModel
 
-
 SPOT, SIGMA, R = 100.0, 0.2, 0.05
 
 

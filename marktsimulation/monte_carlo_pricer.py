@@ -4,27 +4,13 @@ import jax.numpy as jnp
 
 class MonteCarloPricer:
 
-    def __init__(
-        self,
-        model,
-        payoff,
-        value_fn=None,
-        payoff_on_path=False,
-    ):
+    def __init__(self, model, payoff, value_fn=None, payoff_on_path=False):
         self.model = model
         self.payoff = payoff
-        self.value_fn=value_fn
+        self.value_fn = value_fn
         self.payoff_on_path = payoff_on_path
 
-    def price(
-        self,
-        s0,
-        params,
-        maturity,
-        num_paths,
-        num_steps,
-        key,
-    ):
+    def price(self, s0, params, maturity, num_paths, num_steps, key):
 
         dt = maturity / num_steps
 
@@ -54,10 +40,6 @@ class MonteCarloPricer:
             else:
                 underlying = terminal_values
 
-        payoff_values = jax.vmap(
-            self.payoff
-        )(underlying)
+        payoff_values = jax.vmap(self.payoff)(underlying)
 
-        return jnp.mean(
-            payoff_values
-        )
+        return jnp.mean(payoff_values)

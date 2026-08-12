@@ -17,7 +17,6 @@ from risk_visualisierung.riskengine import RiskEngine
 from risk_visualisierung.visualizer import Visualizer
 from surrogate_modeling.surrogate_model import SurrogateModel
 
-
 N_PATHS, N_STEPS = 8, 5
 SPOT, STRIKE, SIGMA, R = 100.0, 100.0, 0.2, 0.05
 
@@ -61,9 +60,7 @@ def _expected_xva(engine, exposure, time_grid, rate):
     discounted = exposure * jnp.exp(-rate * time_grid)
 
     survival = jnp.exp(-engine.hazard_rate * time_grid)
-    default_probs = jnp.concatenate(
-        [survival[:-1] - survival[1:], jnp.array([0.0])]
-    )
+    default_probs = jnp.concatenate([survival[:-1] - survival[1:], jnp.array([0.0])])
 
     lgd = 1.0 - engine.recovery_rate
 
@@ -118,7 +115,9 @@ def test_recovery_and_hazard_rates_scale_the_adjustment():
     no_recovery = RiskEngine(recovery_rate=0.0, hazard_rate=0.02)
     riskier = RiskEngine(recovery_rate=0.4, hazard_rate=0.10)
 
-    cva = lambda e: e.compute_xva_risk(ConstantSurrogate(5.0), paths, time_grid, R)["CVA"]
+    cva = lambda e: e.compute_xva_risk(ConstantSurrogate(5.0), paths, time_grid, R)[
+        "CVA"
+    ]
 
     assert abs(cva(no_recovery) - cva(base) / 0.6) < 1e-10
     assert cva(riskier) > cva(base)
@@ -262,10 +261,13 @@ def test_surrogate_surface_plot():
         Visualizer.plot_surrogate_surface(
             surrogate=SurrogateModel(network),
             fixed_input=jnp.array([SPOT, STRIKE, 1.0, SIGMA, R]),
-            x_idx=0, y_idx=1,
-            x_range=(80.0, 120.0), y_range=(80.0, 120.0),
+            x_idx=0,
+            y_idx=1,
+            x_range=(80.0, 120.0),
+            y_range=(80.0, 120.0),
             feature_labels=("S1", "S2", "S3", "K", "T"),
-            grid_points=6, filename="surface.png",
+            grid_points=6,
+            filename="surface.png",
         )
 
         assert os.path.exists(os.path.join(tmp, "surface.png"))

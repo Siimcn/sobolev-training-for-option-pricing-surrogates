@@ -16,7 +16,6 @@ from surrogate_modeling.sobolev_trainer import SobolevTrainer
 from surrogate_modeling.surrogate_model import SurrogateModel
 from surrogate_modeling.training_config import TrainingConfig
 
-
 D = 3
 
 
@@ -45,9 +44,7 @@ class FloatOnlyMLP(eqx.Module):
     mlp: eqx.nn.MLP
 
     def __init__(self, *, key):
-        self.mlp = eqx.nn.MLP(
-            D, "scalar", 16, 2, activation=jax.nn.softplus, key=key
-        )
+        self.mlp = eqx.nn.MLP(D, "scalar", 16, 2, activation=jax.nn.softplus, key=key)
 
     def __call__(self, x):
         return self.mlp(x)

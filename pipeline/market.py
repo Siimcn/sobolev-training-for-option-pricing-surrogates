@@ -18,14 +18,10 @@ def load_and_calibrate(
 
         market_data.summary()
 
-        print(
-            "\n===== Calibration =====\n"
-        )
+        print("\n===== Calibration =====\n")
 
         calibration = calibrate_problem(
-            config.data.pricing_model,
-            config=config,
-            market_data=market_data,
+            config.data.pricing_model, config=config, market_data=market_data
         )
 
         _print_fitted(calibration)
@@ -43,11 +39,7 @@ def _print_fitted(calibration: CalibrationResult) -> None:
 
     params = calibration.params
 
-    fields = (
-        params._asdict()
-        if hasattr(params, "_asdict")
-        else {"params": params}
-    )
+    fields = params._asdict() if hasattr(params, "_asdict") else {"params": params}
 
     print("\nFitted parameters:")
 
@@ -65,13 +57,11 @@ def _print_fitted(calibration: CalibrationResult) -> None:
 
 
 def _load_market_data(config: ExperimentConfig) -> MarketData:
-    spot, strikes, maturities, prices, is_call = (
-        MarketDataLoader.fetch_yahoo_options(
-            ticker_symbol=config.market.ticker,
-            max_maturities=config.market.max_maturities,
-            cache_path=config.market.cache_path,
-            use_cache=config.market.use_cache,
-        )
+    spot, strikes, maturities, prices, is_call = MarketDataLoader.fetch_yahoo_options(
+        ticker_symbol=config.market.ticker,
+        max_maturities=config.market.max_maturities,
+        cache_path=config.market.cache_path,
+        use_cache=config.market.use_cache,
     )
 
     return MarketData(

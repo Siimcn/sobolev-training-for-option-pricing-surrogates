@@ -29,7 +29,6 @@ from surrogate_modeling.pricing_problem import (
 )
 from surrogate_modeling.validation import run_reference_validation
 
-
 SPOT, SIGMA, R = 100.0, 0.2, 0.05
 
 
@@ -45,7 +44,9 @@ def _market_data():
 
 def _problem(pricing_model):
     config = ExperimentConfig(
-        simulation=SimulationConfig(num_paths=4_000, num_steps=20, reference_paths=16_000),
+        simulation=SimulationConfig(
+            num_paths=4_000, num_steps=20, reference_paths=16_000
+        ),
         data=DataConfig(pricing_model=pricing_model),
         basket=BasketConfig(n_assets=3),
     )
@@ -147,10 +148,7 @@ def test_registering_a_problem_makes_it_selectable():
     config = ExperimentConfig(data=DataConfig(pricing_model="toy_registered"))
 
     problem = build_problem(
-        config.data.pricing_model,
-        config=config,
-        market_data=None,
-        calibration=None,
+        config.data.pricing_model, config=config, market_data=None, calibration=None
     )
 
     assert problem.feature_names == ("a", "b")
@@ -181,9 +179,7 @@ def test_validation_reports_a_perfect_surrogate_as_accurate():
 def test_validation_runs_for_a_model_without_a_closed_form():
     problem = _problem(BASKET_BLACK_SCHOLES)
 
-    surrogate = _Surrogate(
-        lambda x: problem.reference_price(x, jax.random.PRNGKey(4))
-    )
+    surrogate = _Surrogate(lambda x: problem.reference_price(x, jax.random.PRNGKey(4)))
 
     summary = run_reference_validation(surrogate, problem, n_points=16)
 
@@ -196,9 +192,7 @@ def test_validation_catches_an_arbitrage_violating_surrogate():
     problem = _problem(BLACK_SCHOLES)
 
     summary = run_reference_validation(
-        _Surrogate(lambda x: jnp.asarray(1e6) + 0.0 * jnp.sum(x)),
-        problem,
-        n_points=16,
+        _Surrogate(lambda x: jnp.asarray(1e6) + 0.0 * jnp.sum(x)), problem, n_points=16
     )
 
     assert summary["arbitrage_violation_pct"] == 100.0

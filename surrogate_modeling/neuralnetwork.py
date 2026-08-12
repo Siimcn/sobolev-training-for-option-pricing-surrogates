@@ -4,9 +4,7 @@ import equinox as eqx
 
 from typing import Any, Callable, Optional
 
-from surrogate_modeling.architectures import (
-    build_network,
-)
+from surrogate_modeling.architectures import build_network
 
 
 class NeuralNetwork(eqx.Module):
@@ -15,11 +13,7 @@ class NeuralNetwork(eqx.Module):
     model: Callable
     architecture: str = eqx.field(static=True)
 
-    def __init__(
-        self,
-        model: Callable,
-        architecture: Optional[str] = None,
-    ):
+    def __init__(self, model: Callable, architecture: Optional[str] = None):
         if not callable(model):
             raise TypeError(
                 "model must be a callable JAX model "
@@ -30,9 +24,7 @@ class NeuralNetwork(eqx.Module):
         self.model = model
 
         self.architecture = (
-            architecture
-            if architecture is not None
-            else type(model).__name__
+            architecture if architecture is not None else type(model).__name__
         )
 
     @classmethod
@@ -48,11 +40,7 @@ class NeuralNetwork(eqx.Module):
 
         return cls(
             build_network(
-                architecture,
-                key=key,
-                in_size=in_size,
-                out_size=out_size,
-                **kwargs,
+                architecture, key=key, in_size=in_size, out_size=out_size, **kwargs
             ),
             architecture=architecture.upper(),
         )
@@ -70,11 +58,7 @@ class FunctionalNetwork(eqx.Module):
     params: Any
     apply_fn: Callable = eqx.field(static=True)
 
-    def __init__(
-        self,
-        params: Any,
-        apply_fn: Callable,
-    ):
+    def __init__(self, params: Any, apply_fn: Callable):
         if not callable(apply_fn):
             raise TypeError(
                 "apply_fn must be callable as apply_fn(params, x), got "

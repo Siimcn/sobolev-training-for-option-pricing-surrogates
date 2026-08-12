@@ -54,11 +54,7 @@ def basket_price(
 
     spec = payoff_spec(payoff)
 
-    payoff_obj = spec.build(
-        strike=strike,
-        smooth_fn=sigmoid_smooth,
-        smooth_w=smooth_w,
-    )
+    payoff_obj = spec.build(strike=strike, smooth_fn=sigmoid_smooth, smooth_w=smooth_w)
 
     if spec.path_dependent:
 
@@ -110,14 +106,12 @@ def basket_price(
 def uniform_correlation(n_assets: int, rho: float) -> jnp.ndarray:
     """Correlation matrix with rho off the diagonal and ones on it."""
 
-    return (
-        jnp.full((n_assets, n_assets), rho)
-        .at[jnp.diag_indices(n_assets)]
-        .set(1.0)
-    )
+    return jnp.full((n_assets, n_assets), rho).at[jnp.diag_indices(n_assets)].set(1.0)
 
 
-def is_exchangeable(weights: jnp.ndarray, sigmas: jnp.ndarray, corr: jnp.ndarray) -> bool:
+def is_exchangeable(
+    weights: jnp.ndarray, sigmas: jnp.ndarray, corr: jnp.ndarray
+) -> bool:
     """
     True when permuting the spots leaves the true price unchanged: equal
     weights, equal vols and a correlation matrix with one off-diagonal value.
@@ -130,95 +124,6 @@ def is_exchangeable(weights: jnp.ndarray, sigmas: jnp.ndarray, corr: jnp.ndarray
         jnp.allclose(weights, weights[0])
         and jnp.allclose(sigmas, sigmas[0])
         and (len(off_diagonal) == 0 or jnp.allclose(off_diagonal, off_diagonal[0]))
-    )
-
-
-def make_basket_feature_price(
-    weights: jnp.ndarray,
-    corr: jnp.ndarray,
-    sigmas: jnp.ndarray,
-    r: float,
-    payoff: str = "european_call",
-    num_paths: int = 50_000,
-    num_steps: int = 50,
-    smooth_fraction: float = 0.05,
-    symmetrize: bool = False,
-    antithetic: bool = True,
-):
-    """Build `f(x, key) -> price` for a basket option, with the feature layout"""
-
-    if symmetrize and not is_exchangeable(weights, sigmas, corr):
-        raise ValueError(
-            "symmetrize requires an exchangeable basket: equal weights, "
-            "equal volatilities and a uniform correlation."
-        )
-
-    def price_fn(x: jnp.ndarray, key: jnp.ndarray) -> jnp.ndarray:
-        return basket_feature_price(
-            x,
-            weights=weights,
-            corr=corr,
-            sigmas=sigmas,
-            r=r,
-            key=key,
-            payoff=payoff,
-            num_paths=num_paths,
-            num_steps=num_steps,
-            smooth_fraction=smooth_fraction,
-            symmetrize=symmetrize,
-            antithetic=antithetic,
-        )
-
-    return price_fn
-
-
-def basket_feature_price(
-    x: jnp.ndarray,
-    weights: jnp.ndarray,
-    corr: jnp.ndarray,
-    sigmas: jnp.ndarray,
-    r: float,
-    key: jnp.ndarray,
-    payoff: str = "european_call",
-    num_paths: int = 50_000,
-    num_steps: int = 50,
-    smooth_fraction: float = 0.05,
-    symmetrize: bool = False,
-    antithetic: bool = True,
-) -> jnp.ndarray:
-    """One basket price for x = [S_1, ..., S_n, K, T] under an explicit `key`."""
-
-    n_assets = len(weights)
-
-    s0 = jnp.sort(x[:n_assets]) if symmetrize else x[:n_assets]
-    strike = x[n_assets]
-    maturity = x[n_assets + 1]
-
-    model = BasketBlackScholesModel(scheme=EulerMaruyama())
-
-    params = BasketBlackScholesParams(
-        r=r,
-        sigmas=sigmas,
-        weights=weights,
-        corr=corr,
-    )
-
-    basket0 = jnp.sum(weights * s0)
-    dispersion = basket0 * jnp.mean(sigmas) * jnp.sqrt(jnp.maximum(maturity, 1e-6))
-    smooth_w = jnp.maximum(smooth_fraction * dispersion, 1e-3)
-
-    return basket_price(
-        model,
-        params,
-        s0,
-        strike,
-        maturity,
-        key,
-        payoff=payoff,
-        num_paths=num_paths,
-        num_steps=num_steps,
-        smooth_w=smooth_w,
-        antithetic=antithetic,
     )
 
 
@@ -266,12 +171,7 @@ def simulate_basket_assets(
 
     model = BasketBlackScholesModel(scheme=EulerMaruyama())
 
-    params = BasketBlackScholesParams(
-        r=r,
-        sigmas=sigmas,
-        weights=weights,
-        corr=corr,
-    )
+    params = BasketBlackScholesParams(r=r, sigmas=sigmas, weights=weights, corr=corr)
 
     paths = model.scheme.generate_paths(
         s0=s0,
@@ -303,15 +203,18 @@ def basket_greeks(
 
     def price_fn(s0_):
         return basket_price(
-            model, params, s0_, strike, maturity, key,
-            payoff=payoff, num_paths=num_paths, num_steps=num_steps,
+            model,
+            params,
+            s0_,
+            strike,
+            maturity,
+            key,
+            payoff=payoff,
+            num_paths=num_paths,
+            num_steps=num_steps,
         )
 
     price, delta = jax.value_and_grad(price_fn)(s0)
     gamma = jax.hessian(price_fn)(s0)
 
-    return {
-        "price": price,
-        "delta": delta,
-        "gamma": gamma,
-    }
+    return {"price": price, "delta": delta, "gamma": gamma}

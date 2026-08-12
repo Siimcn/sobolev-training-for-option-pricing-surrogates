@@ -18,13 +18,7 @@ class MarketDataLoader:
         min_open_interest: int = 100,
         cache_path: Optional[str] = None,
         use_cache: bool = False,
-    ) -> Tuple[
-        float,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ]:
+    ) -> Tuple[float, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
 
         if cache_path and use_cache and os.path.exists(cache_path):
             return MarketDataLoader.load_cache(cache_path)
@@ -49,26 +43,16 @@ class MarketDataLoader:
         min_open_interest: int = 100,
     ):
 
-        print(
-            f"Loading option data for "
-            f"{ticker_symbol}..."
-        )
+        print(f"Loading option data for " f"{ticker_symbol}...")
 
         ticker = yf.Ticker(ticker_symbol)
 
-        spot = float(
-            ticker.history(
-                period="1d"
-            )["Close"].iloc[-1]
-        )
+        spot = float(ticker.history(period="1d")["Close"].iloc[-1])
 
         expirations = ticker.options
 
         if not expirations:
-            raise ValueError(
-                f"No option expiries found for "
-                f"{ticker_symbol}."
-            )
+            raise ValueError(f"No option expiries found for " f"{ticker_symbol}.")
 
         strikes = []
         maturities = []
@@ -83,37 +67,23 @@ class MarketDataLoader:
 
         for expiry_str in expirations[:max_maturities]:
 
-            expiry = datetime.strptime(
-                expiry_str,
-                "%Y-%m-%d",
-            )
+            expiry = datetime.strptime(expiry_str, "%Y-%m-%d")
 
-            T = (
-                expiry - today
-            ).days / 365.25
+            T = (expiry - today).days / 365.25
 
             if T <= 0.0:
                 continue
 
-            chain = ticker.option_chain(
-                expiry_str
-            )
+            chain = ticker.option_chain(expiry_str)
 
-            for option_df, call_flag in [
-                (chain.calls, 1.0),
-                (chain.puts, 0.0),
-            ]:
+            for option_df, call_flag in [(chain.calls, 1.0), (chain.puts, 0.0)]:
 
                 bid = option_df["bid"].fillna(0.0)
                 ask = option_df["ask"].fillna(0.0)
                 volume = option_df["volume"].fillna(0.0)
                 open_interest = option_df["openInterest"].fillna(0.0)
 
-                has_quote = (
-                    (bid > 0.0)
-                    & (ask > 0.0)
-                    & (ask >= bid)
-                )
+                has_quote = (bid > 0.0) & (ask > 0.0) & (ask >= bid)
 
                 liquid = open_interest >= min_open_interest
 
@@ -128,25 +98,17 @@ class MarketDataLoader:
 
                 valid = option_df[keep]
 
-                mid_prices = (
-                    (bid[keep] + ask[keep]) / 2.0
-                )
+                mid_prices = (bid[keep] + ask[keep]) / 2.0
 
-                for (_, row), mid_price in zip(
-                    valid.iterrows(), mid_prices
-                ):
+                for (_, row), mid_price in zip(valid.iterrows(), mid_prices):
 
-                    strikes.append(
-                        float(row["strike"])
-                    )
+                    strikes.append(float(row["strike"]))
 
                     maturities.append(T)
 
                     prices.append(float(mid_price))
 
-                    is_calls.append(
-                        call_flag
-                    )
+                    is_calls.append(call_flag)
 
         print(
             f"Loaded {len(prices)} liquid options "
@@ -174,33 +136,15 @@ class MarketDataLoader:
 
         return (
             spot,
-            jnp.asarray(
-                strikes,
-                dtype=jnp.float64,
-            ),
-            jnp.asarray(
-                maturities,
-                dtype=jnp.float64,
-            ),
-            jnp.asarray(
-                prices,
-                dtype=jnp.float64,
-            ),
-            jnp.asarray(
-                is_calls,
-                dtype=bool,
-            ),
+            jnp.asarray(strikes, dtype=jnp.float64),
+            jnp.asarray(maturities, dtype=jnp.float64),
+            jnp.asarray(prices, dtype=jnp.float64),
+            jnp.asarray(is_calls, dtype=bool),
         )
 
     @staticmethod
     def save_cache(
-        path: str,
-        ticker_symbol: str,
-        spot,
-        strikes,
-        maturities,
-        prices,
-        is_call,
+        path: str, ticker_symbol: str, spot, strikes, maturities, prices, is_call
     ) -> None:
 
         directory = os.path.dirname(path)
@@ -221,9 +165,7 @@ class MarketDataLoader:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle)
 
-        print(
-            f"Cached {len(payload['prices'])} options to {path}"
-        )
+        print(f"Cached {len(payload['prices'])} options to {path}")
 
     @staticmethod
     def load_cache(path: str):

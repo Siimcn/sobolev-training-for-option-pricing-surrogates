@@ -17,6 +17,8 @@ nav:
         - 3.5 pricing problems: code_structure/pricing_problems.md
         - 3.6 risk_visualisierung: code_structure/risk_visualisierung.md
         - 3.7 utils: code_structure/utils.md
+        - 3.8 pipeline: code_structure/pipeline.md
+        - 3.9 adding a pricing model: code_structure/adding_a_pricing_model.md
         
 
 

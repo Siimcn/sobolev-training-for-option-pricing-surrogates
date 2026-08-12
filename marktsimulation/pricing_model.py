@@ -4,9 +4,7 @@ import equinox as eqx
 
 from typing import NamedTuple, Optional, Tuple
 
-from marktsimulation.timesteppingscheme import (
-    TimeSteppingScheme,
-)
+from marktsimulation.timesteppingscheme import TimeSteppingScheme
 
 
 class BachelierParams(NamedTuple):
@@ -58,32 +56,16 @@ class PricingModel(eqx.Module):
 
     scheme: TimeSteppingScheme
 
-    def __init__(
-        self,
-        scheme: TimeSteppingScheme,
-    ):
+    def __init__(self, scheme: TimeSteppingScheme):
         self.scheme = scheme
 
-    def drift(
-        self,
-        state: jnp.ndarray,
-        params,
-        t: float,
-    ) -> jnp.ndarray:
+    def drift(self, state: jnp.ndarray, params, t: float) -> jnp.ndarray:
         raise NotImplementedError
 
-    def diffusion(
-        self,
-        state: jnp.ndarray,
-        params,
-        t: float,
-    ) -> jnp.ndarray:
+    def diffusion(self, state: jnp.ndarray, params, t: float) -> jnp.ndarray:
         raise NotImplementedError
-    
-    def noise_correlation(
-        self,
-        params,
-    ):
+
+    def noise_correlation(self, params):
         return None
 
     def terminal_state(
@@ -130,24 +112,11 @@ def _correlated_normals(key, num_paths, n_assets, corr):
 
 class BachelierModel(PricingModel):
 
-    def drift(
-        self,
-        state,
-        params: BachelierParams,
-        t,
-    ):
+    def drift(self, state, params: BachelierParams, t):
         return jnp.zeros_like(state)
 
-    def diffusion(
-        self,
-        state,
-        params: BachelierParams,
-        t,
-    ):
-        return jnp.full_like(
-            state,
-            params.sigma,
-        )
+    def diffusion(self, state, params: BachelierParams, t):
+        return jnp.full_like(state, params.sigma)
 
     def terminal_state(self, s0, params, maturity, num_paths, key, antithetic=True):
         """F_T = F_0 + sigma sqrt(T) Z, exactly."""
@@ -167,20 +136,10 @@ class BachelierModel(PricingModel):
 
 class BlackScholesModel(PricingModel):
 
-    def drift(
-        self,
-        state,
-        params: BlackScholesParams,
-        t,
-    ):
+    def drift(self, state, params: BlackScholesParams, t):
         return params.r * state
 
-    def diffusion(
-        self,
-        state,
-        params: BlackScholesParams,
-        t,
-    ):
+    def diffusion(self, state, params: BlackScholesParams, t):
         return params.sigma * state
 
     def terminal_state(self, s0, params, maturity, num_paths, key, antithetic=True):
@@ -206,30 +165,15 @@ class HestonModel(PricingModel):
     def _variance(self, v, params):
         return smooth_positive(v, VARIANCE_SMOOTHING * params.theta)
 
-    def drift(
-        self,
-        state,
-        params: HestonParams,
-        t,
-    ):
+    def drift(self, state, params: HestonParams, t):
 
         S = state[0]
 
         nu = self._variance(state[1], params)
 
-        return jnp.array([
-            params.r * S,
-            params.kappa * (
-                params.theta - nu
-            ),
-        ])
+        return jnp.array([params.r * S, params.kappa * (params.theta - nu)])
 
-    def diffusion(
-        self,
-        state,
-        params: HestonParams,
-        t,
-    ):
+    def diffusion(self, state, params: HestonParams, t):
 
         S = state[0]
 
@@ -237,19 +181,10 @@ class HestonModel(PricingModel):
 
         sqrt_nu = jnp.sqrt(nu)
 
-        return jnp.array([
-            sqrt_nu * S,
-            params.xi * sqrt_nu,
-        ])
+        return jnp.array([sqrt_nu * S, params.xi * sqrt_nu])
 
-    def noise_correlation(
-        self,
-        params: HestonParams,
-    ):
-        return jnp.array([
-            [1.0, params.rho],
-            [params.rho, 1.0],
-        ])
+    def noise_correlation(self, params: HestonParams):
+        return jnp.array([[1.0, params.rho], [params.rho, 1.0]])
 
     def terminal_dispersion(self, s0, params, maturity):
         """Spot scale times the square root of the expected integrated variance."""
@@ -258,44 +193,26 @@ class HestonModel(PricingModel):
 
         decay = jnp.exp(-params.kappa * maturity)
 
-        integrated = params.theta * maturity + (params.nu0 - params.theta) * (
-            1.0 - decay
-        ) / params.kappa
+        integrated = (
+            params.theta * maturity
+            + (params.nu0 - params.theta) * (1.0 - decay) / params.kappa
+        )
 
         return s0[0] * jnp.sqrt(jnp.maximum(integrated, 1e-12))
 
 
 class BasketBlackScholesModel(PricingModel):
 
-    def drift(
-        self,
-        state,
-        params: BasketBlackScholesParams,
-        t,
-    ):
+    def drift(self, state, params: BasketBlackScholesParams, t):
         return params.r * state
 
-    def diffusion(
-        self,
-        state,
-        params: BasketBlackScholesParams,
-        t,
-    ):
+    def diffusion(self, state, params: BasketBlackScholesParams, t):
         return params.sigmas * state
 
-    def basket_value(
-        self,
-        state,
-        params: BasketBlackScholesParams,
-    ):
-        return jnp.sum(
-            params.weights * state
-        )
+    def basket_value(self, state, params: BasketBlackScholesParams):
+        return jnp.sum(params.weights * state)
 
-    def noise_correlation(
-        self,
-        params: BasketBlackScholesParams,
-    ):
+    def noise_correlation(self, params: BasketBlackScholesParams):
         return params.corr
 
     def terminal_state(self, s0, params, maturity, num_paths, key, antithetic=True):
@@ -314,43 +231,22 @@ class BasketBlackScholesModel(PricingModel):
     def terminal_dispersion(self, s0, params, maturity):
         basket = self.basket_value(s0, params)
 
-        return (
-            basket
-            * jnp.mean(params.sigmas)
-            * jnp.sqrt(jnp.maximum(maturity, 1e-12))
-        )
+        return basket * jnp.mean(params.sigmas) * jnp.sqrt(jnp.maximum(maturity, 1e-12))
 
 
 class BasketBachelierModel(PricingModel):
     """Correlated driftless normal assets, dS_i = sigma_i dW_i."""
 
-    def drift(
-        self,
-        state,
-        params: BasketBachelierParams,
-        t,
-    ):
+    def drift(self, state, params: BasketBachelierParams, t):
         return jnp.zeros_like(state)
 
-    def diffusion(
-        self,
-        state,
-        params: BasketBachelierParams,
-        t,
-    ):
+    def diffusion(self, state, params: BasketBachelierParams, t):
         return jnp.broadcast_to(params.sigmas, jnp.shape(state))
 
-    def basket_value(
-        self,
-        state,
-        params: BasketBachelierParams,
-    ):
+    def basket_value(self, state, params: BasketBachelierParams):
         return jnp.sum(params.weights * state)
 
-    def noise_correlation(
-        self,
-        params: BasketBachelierParams,
-    ):
+    def noise_correlation(self, params: BasketBachelierParams):
         return params.corr
 
     def terminal_state(self, s0, params, maturity, num_paths, key, antithetic=True):
@@ -375,80 +271,43 @@ class BasketBachelierModel(PricingModel):
 
 class BasketHestonModel(PricingModel):
 
-    def drift(
-        self,
-        state,
-        params: BasketHestonParams,
-        t,
-    ):
+    def drift(self, state, params: BasketHestonParams, t):
 
-        n_assets = len(
-            params.weights
-        )
+        n_assets = len(params.weights)
 
         S = state[:n_assets]
 
-        nu = smooth_positive(
-            state[n_assets:],
-            VARIANCE_SMOOTHING * params.theta,
-        )
+        nu = smooth_positive(state[n_assets:], VARIANCE_SMOOTHING * params.theta)
 
-        return jnp.concatenate([
-            params.r * S,
-            params.kappa * (
-                params.theta - nu
-            ),
-        ])
+        return jnp.concatenate([params.r * S, params.kappa * (params.theta - nu)])
 
-    def diffusion(
-        self,
-        state,
-        params: BasketHestonParams,
-        t,
-    ):
+    def diffusion(self, state, params: BasketHestonParams, t):
 
-        n_assets = len(
-            params.weights
-        )
+        n_assets = len(params.weights)
 
         S = state[:n_assets]
 
-        nu = smooth_positive(
-            state[n_assets:],
-            VARIANCE_SMOOTHING * params.theta,
-        )
+        nu = smooth_positive(state[n_assets:], VARIANCE_SMOOTHING * params.theta)
 
         sqrt_nu = jnp.sqrt(nu)
 
-        return jnp.concatenate([
-            sqrt_nu * S,
-            params.xi * sqrt_nu,
-        ])
+        return jnp.concatenate([sqrt_nu * S, params.xi * sqrt_nu])
 
-    def basket_value(
-        self,
-        state,
-        params: BasketHestonParams,
-    ):
+    def basket_value(self, state, params: BasketHestonParams):
 
-        n_assets = len(
-            params.weights
-        )
+        n_assets = len(params.weights)
 
         S = state[:n_assets]
 
-        return jnp.sum(
-            params.weights * S
+        return jnp.sum(params.weights * S)
+
+    def noise_correlation(self, params: BasketHestonParams):
+        return jnp.block(
+            [
+                [params.corr, params.rho * params.corr],
+                [params.rho * params.corr, params.corr],
+            ]
         )
-    
-    def noise_correlation(
-        self,
-        params: BasketHestonParams,
-    ):
-        return jnp.block([
-            [params.corr, params.rho * params.corr],
-            [params.rho * params.corr, params.corr],
-        ])
 
     def terminal_dispersion(self, s0, params, maturity):
         n_assets = len(params.weights)
@@ -457,9 +316,10 @@ class BasketHestonModel(PricingModel):
 
         decay = jnp.exp(-params.kappa * maturity)
 
-        integrated = params.theta * maturity + (params.nu0 - params.theta) * (
-            1.0 - decay
-        ) / params.kappa
+        integrated = (
+            params.theta * maturity
+            + (params.nu0 - params.theta) * (1.0 - decay) / params.kappa
+        )
 
         basket = jnp.sum(params.weights * s0[:n_assets])
 

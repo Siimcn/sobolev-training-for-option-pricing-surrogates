@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-
 """
 Heston (stochastic volatility) model: semi-analytic prices.
 """
@@ -16,10 +15,7 @@ def _quadrature(u_max):
 
     half = 0.5 * u_max
 
-    return (
-        jnp.asarray(half * (_GL_NODES + 1.0)),
-        jnp.asarray(half * _GL_WEIGHTS),
-    )
+    return (jnp.asarray(half * (_GL_NODES + 1.0)), jnp.asarray(half * _GL_WEIGHTS))
 
 
 def heston_characteristic(u, spot, maturity, params):
@@ -58,24 +54,15 @@ def _probability(spot, strike, maturity, params, shift, u_max):
         numerator = heston_characteristic(u - 1j * shift, spot, maturity, params)
 
         if shift:
-            numerator = numerator / heston_characteristic(
-                -1j, spot, maturity, params
-            )
+            numerator = numerator / heston_characteristic(-1j, spot, maturity, params)
 
-        return jnp.real(
-            jnp.exp(-1j * u * jnp.log(strike)) * numerator / (1j * u)
-        )
+        return jnp.real(jnp.exp(-1j * u * jnp.log(strike)) * numerator / (1j * u))
 
     return 0.5 + jnp.sum(weights * jax.vmap(integrand)(nodes)) / jnp.pi
 
 
 def heston_price(
-    spot,
-    strike,
-    maturity,
-    params,
-    is_call: bool = True,
-    u_max: float = 200.0,
+    spot, strike, maturity, params, is_call: bool = True, u_max: float = 200.0
 ):
     """European price by Fourier inversion."""
 
@@ -94,9 +81,9 @@ def heston_price(
 def heston_price_vector(params, strikes, maturities, is_call, spot):
     """Vectorised over instruments, in the Calibrator's argument order."""
 
-    return jax.vmap(
-        lambda k, t, c: heston_price(spot, k, t, params, is_call=c)
-    )(strikes, maturities, is_call)
+    return jax.vmap(lambda k, t, c: heston_price(spot, k, t, params, is_call=c))(
+        strikes, maturities, is_call
+    )
 
 
 def feller_ratio(params) -> float:

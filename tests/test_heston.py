@@ -32,13 +32,12 @@ from pipeline.config import (
     PayoffConfig,
     SimulationConfig,
 )
-from surrogate_modeling.heston_problems import calibrate_heston
+from surrogate_modeling.problems.heston import calibrate_heston
 from surrogate_modeling.pricing_problem import (
     CalibrationResult,
     available_problems,
     build_problem,
 )
-
 
 S0, K, T, R = 100.0, 100.0, 1.0, 0.03
 
@@ -48,9 +47,12 @@ HESTON = "heston"
 BASKET_HESTON = "basket_heston"
 
 ALL_MODELS = (
-    "black_scholes", "basket_black_scholes",
-    "bachelier", "basket_bachelier",
-    "heston", "basket_heston",
+    "black_scholes",
+    "basket_black_scholes",
+    "bachelier",
+    "basket_bachelier",
+    "heston",
+    "basket_heston",
 )
 
 
@@ -81,15 +83,18 @@ def _params_for(model):
 def _problem(model, payoff="european_call", params=None, paths=20_000, steps=32):
     config = ExperimentConfig(
         payoff=PayoffConfig(name=payoff),
-        simulation=SimulationConfig(num_paths=paths, num_steps=steps,
-                                    reference_paths=4 * paths),
+        simulation=SimulationConfig(
+            num_paths=paths, num_steps=steps, reference_paths=4 * paths
+        ),
         data=DataConfig(pricing_model=model, min_maturity=0.05),
         basket=BasketConfig(n_assets=3),
         heston=HestonConfig(),
     )
 
     return build_problem(
-        model, config=config, market_data=_market_data(),
+        model,
+        config=config,
+        market_data=_market_data(),
         calibration=CalibrationResult(params=params or _params_for(model)),
     )
 
@@ -102,21 +107,26 @@ def test_zero_vol_of_vol_reduces_to_black_scholes():
     """
 
     for kappa, theta, v0, maturity in [
-        (2.0, 0.04, 0.04, 1.0), (2.0, 0.04, 0.09, 1.0),
-        (1.0, 0.09, 0.01, 2.0), (3.0, 0.02, 0.05, 0.5),
+        (2.0, 0.04, 0.04, 1.0),
+        (2.0, 0.04, 0.09, 1.0),
+        (1.0, 0.09, 0.01, 2.0),
+        (3.0, 0.02, 0.05, 0.5),
     ]:
-        params = HestonParams(r=R, kappa=kappa, theta=theta, xi=1e-6, rho=0.0,
-                              nu0=v0)
+        params = HestonParams(r=R, kappa=kappa, theta=theta, xi=1e-6, rho=0.0, nu0=v0)
 
-        integrated = theta * maturity + (v0 - theta) * (
-            1 - math.exp(-kappa * maturity)
-        ) / kappa
+        integrated = (
+            theta * maturity + (v0 - theta) * (1 - math.exp(-kappa * maturity)) / kappa
+        )
 
-        reference = float(black_scholes_price_single(
-            S0, K, maturity, math.sqrt(integrated / maturity), R, True
-        ))
+        reference = float(
+            black_scholes_price_single(
+                S0, K, maturity, math.sqrt(integrated / maturity), R, True
+            )
+        )
 
-        assert abs(float(heston_price(S0, K, maturity, params, True)) - reference) < 1e-4
+        assert (
+            abs(float(heston_price(S0, K, maturity, params, True)) - reference) < 1e-4
+        )
 
 
 def test_put_call_parity():
@@ -154,7 +164,9 @@ def test_price_stays_inside_its_model_free_bounds():
 def test_the_analytic_price_is_twice_differentiable():
     def price(x):
         return heston_price(
-            x[0], K, T,
+            x[0],
+            K,
+            T,
             HestonParams(r=R, kappa=x[1], theta=x[2], xi=x[3], rho=x[4], nu0=x[5]),
             True,
         )
@@ -182,8 +194,11 @@ def test_vectorised_prices_match_the_scalar_form():
     vector = heston_price_vector(P, strikes, maturities, is_call, S0)
 
     for i in range(4):
-        scalar = float(heston_price(S0, float(strikes[i]), float(maturities[i]),
-                                    P, bool(is_call[i])))
+        scalar = float(
+            heston_price(
+                S0, float(strikes[i]), float(maturities[i]), P, bool(is_call[i])
+            )
+        )
 
         assert abs(float(vector[i]) - scalar) < 1e-10
 
@@ -228,14 +243,18 @@ def test_the_variance_entering_the_square_root_is_always_positive():
     model = HestonModel(scheme=EulerMaruyama())
 
     for kappa, xi in [(2.0, 0.2), (2.0, 0.5), (1.0, 0.7)]:
-        params = HestonParams(r=R, kappa=kappa, theta=0.04, xi=xi, rho=-0.7,
-                              nu0=0.04)
+        params = HestonParams(r=R, kappa=kappa, theta=0.04, xi=xi, rho=-0.7, nu0=0.04)
 
         paths = model.scheme.generate_paths(
             s0=jnp.array([S0, params.nu0]),
-            drift_fn=model.drift, diffusion_fn=model.diffusion, params=params,
-            key=jax.random.PRNGKey(1), num_paths=4_000, num_steps=50,
-            dt=1.0 / 50, corr=model.noise_correlation(params),
+            drift_fn=model.drift,
+            diffusion_fn=model.diffusion,
+            params=params,
+            key=jax.random.PRNGKey(1),
+            num_paths=4_000,
+            num_steps=50,
+            dt=1.0 / 50,
+            corr=model.noise_correlation(params),
         )
 
         used = smooth_positive(paths[:, :, 1], VARIANCE_SMOOTHING * params.theta)
@@ -255,8 +274,13 @@ def test_the_raw_variance_state_does_go_negative_when_feller_is_violated():
 
     paths = model.scheme.generate_paths(
         s0=jnp.array([S0, params.nu0]),
-        drift_fn=model.drift, diffusion_fn=model.diffusion, params=params,
-        key=jax.random.PRNGKey(1), num_paths=4_000, num_steps=50, dt=1.0 / 50,
+        drift_fn=model.drift,
+        diffusion_fn=model.diffusion,
+        params=params,
+        key=jax.random.PRNGKey(1),
+        num_paths=4_000,
+        num_steps=50,
+        dt=1.0 / 50,
         corr=model.noise_correlation(params),
     )
 
@@ -266,9 +290,12 @@ def test_the_raw_variance_state_does_go_negative_when_feller_is_violated():
 def test_feller_ratio_is_reported_correctly():
     assert abs(feller_ratio(P) - 2 * 2.0 * 0.04 / 0.25) < 1e-12
 
-    assert feller_ratio(
-        HestonParams(r=R, kappa=2.0, theta=0.04, xi=0.2, rho=0.0, nu0=0.04)
-    ) > 1.0
+    assert (
+        feller_ratio(
+            HestonParams(r=R, kappa=2.0, theta=0.04, xi=0.2, rho=0.0, nu0=0.04)
+        )
+        > 1.0
+    )
 
 
 def test_hard_truncation_destroys_the_variance_sensitivity():
@@ -295,9 +322,9 @@ def test_monte_carlo_labels_agree_with_the_fourier_reference():
 
     analytic = float(problem.analytic_price(x))
 
-    draws = jnp.array([
-        float(problem.label_price_fn()(x, jax.random.PRNGKey(s))) for s in range(10)
-    ])
+    draws = jnp.array(
+        [float(problem.label_price_fn()(x, jax.random.PRNGKey(s))) for s in range(10)]
+    )
 
     standard_error = float(jnp.std(draws)) / math.sqrt(len(draws))
 
@@ -340,10 +367,17 @@ def test_the_monte_carlo_gradient_tracks_the_analytic_one():
 
     analytic = jax.grad(lambda z: problem.analytic_price(z))(x)
 
-    simulated = jnp.mean(jnp.stack([
-        jax.grad(lambda z: problem.label_price_fn()(z, jax.random.PRNGKey(s)))(x)
-        for s in range(8)
-    ]), axis=0)
+    simulated = jnp.mean(
+        jnp.stack(
+            [
+                jax.grad(lambda z: problem.label_price_fn()(z, jax.random.PRNGKey(s)))(
+                    x
+                )
+                for s in range(8)
+            ]
+        ),
+        axis=0,
+    )
 
     for index in (0, 1, 2, 3):
         assert abs(float(simulated[index]) - float(analytic[index])) < 0.05 * max(
@@ -393,15 +427,17 @@ def test_calibration_recovers_synthetic_heston_prices():
     truth = HestonParams(r=0.03, kappa=1.5, theta=0.05, xi=0.4, rho=-0.6, nu0=0.045)
 
     strikes = jnp.array([80.0, 90.0, 100.0, 110.0, 120.0] * 3)
-    maturities = jnp.concatenate([
-        jnp.full(5, 0.25), jnp.full(5, 0.75), jnp.full(5, 1.5)
-    ])
+    maturities = jnp.concatenate(
+        [jnp.full(5, 0.25), jnp.full(5, 0.75), jnp.full(5, 1.5)]
+    )
     is_call = jnp.array([True] * 15)
 
     spot = 100.0
 
     synthetic = MarketData(
-        spot=spot, strikes=strikes, maturities=maturities,
+        spot=spot,
+        strikes=strikes,
+        maturities=maturities,
         market_prices=heston_price_vector(truth, strikes, maturities, is_call, spot),
         is_call=is_call,
     )
@@ -428,14 +464,18 @@ def test_calibration_recovers_synthetic_heston_prices():
     assert "feller_ratio" in result.diagnostics
     assert result.assumptions == {}
 
-    for key in ("residual_rmse", "residual_median_relative_pct",
-                "residual_mean_signed", "residual_max_absolute"):
+    for key in (
+        "residual_rmse",
+        "residual_median_relative_pct",
+        "residual_mean_signed",
+        "residual_max_absolute",
+    ):
         assert key in result.diagnostics, key
         assert math.isfinite(float(result.diagnostics[key])), key
 
 
 def test_the_basket_variant_declares_every_structural_assumption():
-    from surrogate_modeling.heston_problems import calibrate_basket_heston
+    from surrogate_modeling.problems.heston import calibrate_basket_heston
 
     config = ExperimentConfig(
         data=DataConfig(pricing_model=BASKET_HESTON),
@@ -461,22 +501,38 @@ def test_mc_price_refuses_to_guess_the_underlying():
     model = HestonModel(scheme=EulerMaruyama())
 
     try:
-        mc_price(model, P, jnp.array([S0, P.nu0]), K, T,
-                 jax.random.PRNGKey(0), num_paths=64, num_steps=4)
+        mc_price(
+            model,
+            P,
+            jnp.array([S0, P.nu0]),
+            K,
+            T,
+            jax.random.PRNGKey(0),
+            num_paths=64,
+            num_steps=4,
+        )
     except ValueError as e:
         assert "value_fn" in str(e)
     else:
         assert False, "an ambiguous multi-dimensional state must raise"
 
-    price = mc_price(model, P, jnp.array([S0, P.nu0]), K, T,
-                     jax.random.PRNGKey(0), num_paths=64, num_steps=4,
-                     value_fn=lambda state: state[0])
+    price = mc_price(
+        model,
+        P,
+        jnp.array([S0, P.nu0]),
+        K,
+        T,
+        jax.random.PRNGKey(0),
+        num_paths=64,
+        num_steps=4,
+        value_fn=lambda state: state[0],
+    )
 
     assert math.isfinite(float(price))
 
 
 def test_the_unconstrained_reparametrisation_round_trips():
-    from surrogate_modeling.heston_problems import _heston_transforms
+    from surrogate_modeling.problems.heston import _heston_transforms
 
     to_model, to_unconstrained = _heston_transforms()
 
@@ -513,9 +569,7 @@ def test_every_model_exposes_a_consistent_interface():
 def test_the_heston_problem_carries_its_parameters_as_features():
     problem = _problem(HESTON, paths=2_000, steps=8)
 
-    assert problem.feature_names == (
-        "S", "K", "T", "v0", "kappa", "theta", "xi", "rho"
-    )
+    assert problem.feature_names == ("S", "K", "T", "v0", "kappa", "theta", "xi", "rho")
     assert problem.n_features == 8
 
 
@@ -549,10 +603,13 @@ def test_payoff_switching_on_heston():
     call_price = float(european.analytic_price(x))
     put_price = float(put.analytic_price(x))
 
-    assert abs(
-        (call_price - put_price)
-        - (float(x[0]) - float(x[1]) * math.exp(-P.r * float(x[2])))
-    ) < 1e-8
+    assert (
+        abs(
+            (call_price - put_price)
+            - (float(x[0]) - float(x[1]) * math.exp(-P.r * float(x[2])))
+        )
+        < 1e-8
+    )
 
 
 if __name__ == "__main__":

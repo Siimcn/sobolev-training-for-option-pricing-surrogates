@@ -8,8 +8,32 @@ dependencies = [
     "equinox>=0.13.8",
     "jax>=0.11.0",
     "matplotlib>=3.11.1",
-    "mkdocs>=1.6.1",
     "optax>=0.2.8",
     "optimistix>=0.1.0",
     "yfinance>=1.5.1",
 ]
+
+[dependency-groups]
+# Needed to run the pipeline: nothing here. Needed to work on it:
+dev = [
+    "black>=25.0",
+    "pytest>=9.1.1",
+]
+
+# Only needed to build the documentation site, so a plain `uv sync` does not
+# pull three packages that the pipeline never imports.
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+    "mkdocs-print-site-plugin>=2.8",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+extend-exclude = "diff-ml-main"
+
+# Without this, a trailing comma inside a call pins it to one-argument-per-line
+# forever. The codebase was written that way throughout, which spread short
+# expressions like `max(n_batches, 1)` over four lines.
+skip-magic-trailing-comma = true

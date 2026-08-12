@@ -16,7 +16,6 @@ from kalibrierung.market_data_loader import MarketDataLoader
 from marktsimulation.black_scholes import black_scholes_price
 from marktsimulation.pricing_model import BlackScholesParams
 
-
 SPOT = 100.0
 TRUE_PARAMS = BlackScholesParams(r=0.03, sigma=0.25)
 
@@ -144,9 +143,7 @@ def test_calibrator_applies_parameter_transform():
         inv_transform_fn=lambda p: BlackScholesParams(r=p.r, sigma=jnp.log(p.sigma)),
     )
 
-    fitted, _ = calibrator.calibrate(
-        BlackScholesParams(r=0.06, sigma=0.15), market
-    )
+    fitted, _ = calibrator.calibrate(BlackScholesParams(r=0.06, sigma=0.15), market)
 
     assert abs(float(fitted.sigma) - TRUE_PARAMS.sigma) < 1e-4
     assert float(fitted.sigma) > 0.0
@@ -156,16 +153,23 @@ def test_zero_weights_remove_instruments_from_the_fit():
     strikes, maturities, is_call = _grid()
 
     prices = black_scholes_price(
-        params=TRUE_PARAMS, strikes=strikes, maturities=maturities,
-        is_call=is_call, spot=SPOT,
+        params=TRUE_PARAMS,
+        strikes=strikes,
+        maturities=maturities,
+        is_call=is_call,
+        spot=SPOT,
     )
 
     corrupted = prices.at[:5].set(prices[:5] + 50.0)
     weights = jnp.concatenate([jnp.zeros(5), jnp.ones(len(strikes) - 5)])
 
     market = MarketData(
-        spot=SPOT, strikes=strikes, maturities=maturities,
-        market_prices=corrupted, is_call=is_call, weights=weights,
+        spot=SPOT,
+        strikes=strikes,
+        maturities=maturities,
+        market_prices=corrupted,
+        is_call=is_call,
+        weights=weights,
     )
 
     fitted, _ = Calibrator(pricing_fn=_pricer).calibrate(
@@ -179,8 +183,11 @@ def test_market_data_loader_cache_round_trip():
     strikes, maturities, is_call = _grid()
 
     prices = black_scholes_price(
-        params=TRUE_PARAMS, strikes=strikes, maturities=maturities,
-        is_call=is_call, spot=SPOT,
+        params=TRUE_PARAMS,
+        strikes=strikes,
+        maturities=maturities,
+        is_call=is_call,
+        spot=SPOT,
     )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -205,8 +212,11 @@ def test_fetch_uses_cache_without_network():
     strikes, maturities, is_call = _grid()
 
     prices = black_scholes_price(
-        params=TRUE_PARAMS, strikes=strikes, maturities=maturities,
-        is_call=is_call, spot=SPOT,
+        params=TRUE_PARAMS,
+        strikes=strikes,
+        maturities=maturities,
+        is_call=is_call,
+        spot=SPOT,
     )
 
     with tempfile.TemporaryDirectory() as tmp:

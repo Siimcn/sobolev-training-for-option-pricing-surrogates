@@ -26,7 +26,6 @@ from surrogate_modeling.metrics import (
     sobolev_metrics,
 )
 
-
 D = 3
 
 
@@ -148,10 +147,12 @@ def test_price_loss_divides_by_the_clipped_scale():
 
 
 def test_price_loss_bounds_the_weight_of_cheap_and_expensive_options():
-    cheap = price_loss(jnp.array([0.02]), jnp.array([0.01]),
-                       scale_floor=0.05, scale_ceiling=2.0)
-    rich = price_loss(jnp.array([1000.01]), jnp.array([1000.0]),
-                      scale_floor=0.05, scale_ceiling=2.0)
+    cheap = price_loss(
+        jnp.array([0.02]), jnp.array([0.01]), scale_floor=0.05, scale_ceiling=2.0
+    )
+    rich = price_loss(
+        jnp.array([1000.01]), jnp.array([1000.0]), scale_floor=0.05, scale_ceiling=2.0
+    )
 
     ratio = float(cheap) / float(rich)
 

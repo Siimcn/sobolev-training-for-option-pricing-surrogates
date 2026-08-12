@@ -19,7 +19,6 @@ from surrogate_modeling.training_config import (
     TrainingConfig,
 )
 
-
 D = 3
 
 
@@ -45,8 +44,12 @@ def _dataset(n=64, seed=0):
 
 def _trainer(dataset, **overrides):
     base = dict(
-        learning_rate=1e-2, batch_size=16, epochs=10,
-        early_stopping=False, print_every=1000, sobolev_order=2,
+        learning_rate=1e-2,
+        batch_size=16,
+        epochs=10,
+        early_stopping=False,
+        print_every=1000,
+        sobolev_order=2,
     )
     base.update(overrides)
 
@@ -77,10 +80,7 @@ def test_defaults_select_on_the_full_objective():
 
 
 def test_config_rejects_invalid_selection_settings():
-    for overrides in [
-        dict(selection_metric="hvp_only"),
-        dict(min_delta_relative=-0.1),
-    ]:
+    for overrides in [dict(selection_metric="hvp_only"), dict(min_delta_relative=-0.1)]:
         try:
             TrainingConfig(**overrides).validate()
         except ValueError:
@@ -155,11 +155,7 @@ def test_relative_threshold_stops_a_converged_run():
     train, valid = train_test_split(_dataset())
 
     history = _trainer(
-        train,
-        epochs=50,
-        early_stopping=True,
-        patience=2,
-        min_delta_relative=10.0,
+        train, epochs=50, early_stopping=True, patience=2, min_delta_relative=10.0
     ).fit(train, valid)
 
     assert len(history["train_loss"]) == 3

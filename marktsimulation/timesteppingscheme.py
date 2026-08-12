@@ -4,16 +4,9 @@ import equinox as eqx
 
 from typing import Any, Callable
 
+DriftFn = Callable[[jnp.ndarray, Any, float], jnp.ndarray]
 
-DriftFn = Callable[
-    [jnp.ndarray, Any, float],
-    jnp.ndarray,
-]
-
-DiffusionFn = Callable[
-    [jnp.ndarray, Any, float],
-    jnp.ndarray,
-]
+DiffusionFn = Callable[[jnp.ndarray, Any, float], jnp.ndarray]
 
 
 class TimeSteppingScheme(eqx.Module):
@@ -46,22 +39,12 @@ class TimeSteppingScheme(eqx.Module):
 
         state_dim = s0.shape[0]
 
-        dW = (
-            jax.random.normal(
-                key,
-                shape=(
-                    num_paths,
-                    num_steps,
-                    state_dim,
-                ),
-            )
-            * jnp.sqrt(dt)
+        dW = jax.random.normal(key, shape=(num_paths, num_steps, state_dim)) * jnp.sqrt(
+            dt
         )
         if corr is not None:
 
-            L = jnp.linalg.cholesky(
-                jnp.asarray(corr)
-            )
+            L = jnp.linalg.cholesky(jnp.asarray(corr))
 
             dW = dW @ L.T
 
@@ -74,122 +57,43 @@ class TimeSteppingScheme(eqx.Module):
                 t = step_idx * dt
 
                 state_next = self.step(
-                    state,
-                    drift_fn,
-                    diffusion_fn,
-                    params,
-                    t,
-                    dw_t,
-                    dt,
+                    state, drift_fn, diffusion_fn, params, t, dw_t, dt
                 )
 
                 return state_next, state_next
 
-            indices = jnp.arange(
-                num_steps,
-                dtype=jnp.int32,
-            )
+            indices = jnp.arange(num_steps, dtype=jnp.int32)
 
-            _, path_tail = jax.lax.scan(
-                body,
-                s0,
-                (indices, dw_path),
-            )
+            _, path_tail = jax.lax.scan(body, s0, (indices, dw_path))
 
-            return jnp.vstack(
-                [
-                    s0[None, :],
-                    path_tail,
-                ]
-            )
+            return jnp.vstack([s0[None, :], path_tail])
 
-        return jax.vmap(
-            simulate_path
-        )(dW)
-    
-class EulerMaruyama(
-    TimeSteppingScheme
-):
+        return jax.vmap(simulate_path)(dW)
 
-    def step(
-        self,
-        state,
-        drift_fn,
-        diffusion_fn,
-        params,
-        t,
-        dW,
-        dt,
-    ):
 
-        drift = drift_fn(
-            state,
-            params,
-            t,
-        )
+class EulerMaruyama(TimeSteppingScheme):
 
-        diffusion = diffusion_fn(
-            state,
-            params,
-            t,
-        )
+    def step(self, state, drift_fn, diffusion_fn, params, t, dW, dt):
 
-        return (
-            state
-            + drift * dt
-            + diffusion * dW
-        )
-    
-class Milstein(
-    TimeSteppingScheme
-):
+        drift = drift_fn(state, params, t)
 
-    def step(
-        self,
-        state,
-        drift_fn,
-        diffusion_fn,
-        params,
-        t,
-        dW,
-        dt,
-    ):
+        diffusion = diffusion_fn(state, params, t)
 
-        drift = drift_fn(
-            state,
-            params,
-            t,
-        )
+        return state + drift * dt + diffusion * dW
 
-        diffusion = diffusion_fn(
-            state,
-            params,
-            t,
-        )
 
-        jacobian = jax.jacobian(
-            lambda x:
-            diffusion_fn(
-                x,
-                params,
-                t,
-            )
-        )(state)
+class Milstein(TimeSteppingScheme):
 
-        diffusion_derivative = (
-            jnp.diag(jacobian)
-        )
+    def step(self, state, drift_fn, diffusion_fn, params, t, dW, dt):
 
-        correction = (
-            0.5
-            * diffusion
-            * diffusion_derivative
-            * (dW**2 - dt)
-        )
+        drift = drift_fn(state, params, t)
 
-        return (
-            state
-            + drift * dt
-            + diffusion * dW
-            + correction
-        )
+        diffusion = diffusion_fn(state, params, t)
+
+        jacobian = jax.jacobian(lambda x: diffusion_fn(x, params, t))(state)
+
+        diffusion_derivative = jnp.diag(jacobian)
+
+        correction = 0.5 * diffusion * diffusion_derivative * (dW**2 - dt)
+
+        return state + drift * dt + diffusion * dW + correction

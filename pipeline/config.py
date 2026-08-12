@@ -4,15 +4,16 @@ from typing import Optional, Tuple
 
 from marktsimulation.payoff import available_payoffs
 
-import surrogate_modeling.heston_problems  # noqa: F401
+# importing the package registers every problem; see its __init__
 import surrogate_modeling.problems  # noqa: F401
 
-from surrogate_modeling.heston_problems import BASKET_HESTON, HESTON
 from surrogate_modeling.problems import (
     BACHELIER,
     BASKET_BACHELIER,
     BASKET_BLACK_SCHOLES,
+    BASKET_HESTON,
     BLACK_SCHOLES,
+    HESTON,
 )
 from surrogate_modeling.pricing_problem import available_problems
 from surrogate_modeling.training_config import TOTAL, TrainingConfig
@@ -182,30 +183,23 @@ def _training_config() -> TrainingConfig:
 
     return TrainingConfig(
         learning_rate=1e-3,
-
         lambda_grad=1.0,
         lambda_hessian=0.1,
-
         epochs=1000,
         batch_size=32,
-
         lr_schedule="cosine",
         lr_final_fraction=0.02,
         warmup_epochs=10,
         gradient_clip=1.0,
-
         # on price+gradient alone, training stops while curvature is still
         # improving and leaves its error 2.6x higher
         selection_metric=TOTAL,
-
         early_stopping=True,
         patience=200,
         min_delta=1e-6,
         min_delta_relative=1e-3,
-
         seed=42,
         print_every=25,
-
         sobolev_order=2,
     )
 

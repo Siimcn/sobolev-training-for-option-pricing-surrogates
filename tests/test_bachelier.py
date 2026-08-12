@@ -48,7 +48,6 @@ from surrogate_modeling.pricing_problem import (
     build_problem,
 )
 
-
 F, K, T, SIG, R = 100.0, 105.0, 1.0, 20.0, 0.04
 N = 3
 W = jnp.full(N, 1.0 / N)
@@ -72,8 +71,9 @@ def _market_data(spot=100.0):
 def _problem(model, payoff="european_call", sigma=SIG, n_assets=3):
     config = ExperimentConfig(
         payoff=PayoffConfig(name=payoff),
-        simulation=SimulationConfig(num_paths=20_000, num_steps=16,
-                                    reference_paths=60_000),
+        simulation=SimulationConfig(
+            num_paths=20_000, num_steps=16, reference_paths=60_000
+        ),
         data=DataConfig(pricing_model=model, min_maturity=0.05),
         basket=BasketConfig(n_assets=n_assets),
     )
@@ -96,10 +96,13 @@ def test_put_call_parity():
 def test_spot_quoting_carries_the_forward():
     spot = 100.0
 
-    assert abs(
-        float(bachelier_spot_price(spot, K, T, SIG, R, True))
-        - float(bachelier_price_single(spot * math.exp(R * T), K, T, SIG, R, True))
-    ) < 1e-12
+    assert (
+        abs(
+            float(bachelier_spot_price(spot, K, T, SIG, R, True))
+            - float(bachelier_price_single(spot * math.exp(R * T), K, T, SIG, R, True))
+        )
+        < 1e-12
+    )
 
     deep = float(bachelier_spot_price(spot, 1.0, T, SIG, R, True))
 
@@ -120,8 +123,12 @@ def test_a_normal_underlying_admits_negative_states():
     model = BachelierModel(scheme=EulerMaruyama())
 
     blocks = model.terminal_state(
-        jnp.array([1.0]), BachelierParams(sigma=50.0, r=0.0), 1.0,
-        20_000, jax.random.PRNGKey(0), antithetic=False,
+        jnp.array([1.0]),
+        BachelierParams(sigma=50.0, r=0.0),
+        1.0,
+        20_000,
+        jax.random.PRNGKey(0),
+        antithetic=False,
     )
 
     assert bool(jnp.any(blocks[0] < 0.0))
@@ -166,18 +173,22 @@ def test_basket_price_depends_on_the_spots_only_through_the_basket():
 
     assert abs(float(jnp.sum(W * a)) - float(jnp.sum(W * b))) < 1e-12
 
-    assert abs(
-        float(basket_bachelier_price(a, K, T, W, SIGMAS, CORR, R, True))
-        - float(basket_bachelier_price(b, K, T, W, SIGMAS, CORR, R, True))
-    ) < 1e-12
+    assert (
+        abs(
+            float(basket_bachelier_price(a, K, T, W, SIGMAS, CORR, R, True))
+            - float(basket_bachelier_price(b, K, T, W, SIGMAS, CORR, R, True))
+        )
+        < 1e-12
+    )
 
 
 def test_feature_pricer_gradient_and_hvp_match_finite_differences():
     model = BasketBachelierModel(scheme=EulerMaruyama())
     params = BasketBachelierParams(r=R, sigmas=SIGMAS, weights=W, corr=CORR)
 
-    price_fn = make_feature_price(model, params, N, num_paths=40_000,
-                                  smooth_fraction=0.05, symmetrize=False)
+    price_fn = make_feature_price(
+        model, params, N, num_paths=40_000, smooth_fraction=0.05, symmetrize=False
+    )
 
     key = jax.random.PRNGKey(7)
     keyed = lambda z: price_fn(z, key)
@@ -209,12 +220,23 @@ def test_exact_sampling_is_unbiased_against_the_closed_form():
     model = BachelierModel(scheme=EulerMaruyama())
     params = BachelierParams(sigma=SIG, r=R)
 
-    prices = jnp.array([
-        float(mc_price(model, params, jnp.array([F]), K, T,
-                       jax.random.PRNGKey(s), num_paths=200_000,
-                       smooth_fraction=0.002))
-        for s in range(12)
-    ])
+    prices = jnp.array(
+        [
+            float(
+                mc_price(
+                    model,
+                    params,
+                    jnp.array([F]),
+                    K,
+                    T,
+                    jax.random.PRNGKey(s),
+                    num_paths=200_000,
+                    smooth_fraction=0.002,
+                )
+            )
+            for s in range(12)
+        ]
+    )
 
     analytic = float(bachelier_price_single(F, K, T, SIG, R, True))
 
@@ -229,11 +251,23 @@ def test_basket_monte_carlo_matches_the_closed_form():
 
     spots = jnp.array([95.0, 100.0, 110.0])
 
-    prices = jnp.array([
-        float(mc_price(model, params, spots, K, T, jax.random.PRNGKey(s),
-                       num_paths=200_000, smooth_fraction=0.002))
-        for s in range(12)
-    ])
+    prices = jnp.array(
+        [
+            float(
+                mc_price(
+                    model,
+                    params,
+                    spots,
+                    K,
+                    T,
+                    jax.random.PRNGKey(s),
+                    num_paths=200_000,
+                    smooth_fraction=0.002,
+                )
+            )
+            for s in range(12)
+        ]
+    )
 
     analytic = float(basket_bachelier_price(spots, K, T, W, SIGMAS, CORR, R, True))
 
@@ -252,10 +286,16 @@ def test_euler_is_exact_for_bachelier():
             EuropeanCall(strike=K, smooth_fn=sigmoid_smooth, smooth_w=0.002 * SIG),
         )
 
-        return float(pricer.price(
-            s0=jnp.array([F]), params=params, maturity=T, num_paths=100_000,
-            num_steps=num_steps, key=jax.random.PRNGKey(seed),
-        )) * math.exp(-R * T)
+        return float(
+            pricer.price(
+                s0=jnp.array([F]),
+                params=params,
+                maturity=T,
+                num_paths=100_000,
+                num_steps=num_steps,
+                key=jax.random.PRNGKey(seed),
+            )
+        ) * math.exp(-R * T)
 
     coarse = jnp.array([stepped(1, s) for s in range(8)])
     fine = jnp.array([stepped(120, s) for s in range(8)])
@@ -270,23 +310,45 @@ def test_antithetic_sampling_reduces_variance():
     params = BasketBachelierParams(r=R, sigmas=SIGMAS, weights=W, corr=CORR)
 
     def spread(antithetic):
-        return float(jnp.std(jnp.array([
-            float(mc_price(model, params, jnp.full(N, 100.0), K, T,
-                           jax.random.PRNGKey(s), num_paths=4_000,
-                           antithetic=antithetic))
-            for s in range(20)
-        ])))
+        return float(
+            jnp.std(
+                jnp.array(
+                    [
+                        float(
+                            mc_price(
+                                model,
+                                params,
+                                jnp.full(N, 100.0),
+                                K,
+                                T,
+                                jax.random.PRNGKey(s),
+                                num_paths=4_000,
+                                antithetic=antithetic,
+                            )
+                        )
+                        for s in range(20)
+                    ]
+                )
+            )
+        )
 
     assert spread(True) < spread(False)
 
 
 def test_terminal_draws_reproduce_the_requested_correlation():
     model = BasketBachelierModel(scheme=EulerMaruyama())
-    params = BasketBachelierParams(r=0.0, sigmas=jnp.full(N, 20.0),
-                                   weights=W, corr=uniform_correlation(N, 0.5))
+    params = BasketBachelierParams(
+        r=0.0, sigmas=jnp.full(N, 20.0), weights=W, corr=uniform_correlation(N, 0.5)
+    )
 
-    blocks = model.terminal_state(jnp.full(N, 100.0), params, 1.0, 200_000,
-                                  jax.random.PRNGKey(11), antithetic=False)
+    blocks = model.terminal_state(
+        jnp.full(N, 100.0),
+        params,
+        1.0,
+        200_000,
+        jax.random.PRNGKey(11),
+        antithetic=False,
+    )
 
     realised = jnp.corrcoef(blocks[0].T)
 
@@ -306,11 +368,9 @@ def test_basket_volatility_falls_as_correlation_falls():
 
 def test_symmetrize_makes_the_basket_price_permutation_invariant():
     model = BasketBachelierModel(scheme=EulerMaruyama())
-    params = BasketBachelierParams(r=R, sigmas=jnp.full(N, 20.0), weights=W,
-                                   corr=CORR)
+    params = BasketBachelierParams(r=R, sigmas=jnp.full(N, 20.0), weights=W, corr=CORR)
 
-    price_fn = make_feature_price(model, params, N, num_paths=20_000,
-                                  symmetrize=True)
+    price_fn = make_feature_price(model, params, N, num_paths=20_000, symmetrize=True)
 
     key = jax.random.PRNGKey(3)
 
@@ -377,9 +437,7 @@ def test_the_normal_domain_is_additive_not_multiplicative():
 
     low, high = problem.feature_bounds()
 
-    spread = problem.data.domain_n_sigma * SIG * math.sqrt(
-        problem.data.domain_horizon
-    )
+    spread = problem.data.domain_n_sigma * SIG * math.sqrt(problem.data.domain_horizon)
 
     assert abs(float(low[0]) - (100.0 - spread)) < 1e-9
     assert abs(float(high[0]) - (100.0 + spread)) < 1e-9
@@ -401,9 +459,9 @@ def test_the_basket_bachelier_reference_matches_its_own_closed_form():
 
     analytic = float(problem.analytic_price(x))
 
-    draws = jnp.array([
-        float(problem.reference_price(x, jax.random.PRNGKey(s))) for s in range(8)
-    ])
+    draws = jnp.array(
+        [float(problem.reference_price(x, jax.random.PRNGKey(s))) for s in range(8)]
+    )
 
     standard_error = float(jnp.std(draws)) / math.sqrt(len(draws))
 

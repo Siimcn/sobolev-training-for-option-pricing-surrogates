@@ -3,24 +3,18 @@ import jax.numpy as jnp
 import equinox as eqx
 import optax
 import copy
+from dataclasses import dataclass
 import math
 
 from typing import Dict, List, Optional
 
 
-from surrogate_modeling.dataset import (
-    SobolevDataset,
-    DataLoader,
-)
+from surrogate_modeling.dataset import SobolevDataset, DataLoader
 
 
-from surrogate_modeling.losses import (
-    sobolev_loss,
-)
+from surrogate_modeling.losses import sobolev_loss
 
-from surrogate_modeling.metrics import (
-    sobolev_metrics,
-)
+from surrogate_modeling.metrics import sobolev_metrics
 
 from surrogate_modeling.training_config import (
     COSINE_LR,
@@ -32,9 +26,31 @@ from surrogate_modeling.training_config import (
     TrainingConfig,
 )
 
-from surrogate_modeling.surrogate_model import (
-    SurrogateModel,
-)
+from surrogate_modeling.surrogate_model import SurrogateModel
+
+
+@dataclass(frozen=True)
+class _EpochStats:
+    """One epoch's averaged losses, so `fit` carries five numbers, not five variables."""
+
+    total: float
+    price: float
+    price_rmse: float
+    gradient: float
+    hessian: float
+
+    @staticmethod
+    def from_metrics(total, metrics) -> "_EpochStats":
+        """Build from a single evaluation, e.g. the validation pass."""
+
+        return _EpochStats(
+            total=float(total),
+            price=float(metrics["price_loss"]),
+            price_rmse=float(metrics.get("price_mse_raw", metrics["price_loss"]))
+            ** 0.5,
+            gradient=float(metrics.get("gradient_loss", 0.0)),
+            hessian=float(metrics.get("hessian_loss", 0.0)),
+        )
 
 
 class SobolevTrainer:
@@ -72,10 +88,7 @@ class SobolevTrainer:
         )
 
         self.opt_state = self.optimizer.init(
-            eqx.filter(
-                self.model,
-                eqx.is_inexact_array,
-            )
+            eqx.filter(self.model, eqx.is_inexact_array)
         )
 
     def _current_learning_rate(self, epoch: int) -> float:
@@ -209,47 +222,81 @@ class SobolevTrainer:
         return self.config.min_delta
 
     @eqx.filter_jit
-    def train_step(
-        self,
-        model,
-        opt_state,
-        X,
-        y,
-        gradients,
-        hvps,
-        V,
-    ):
+    def train_step(self, model, opt_state, X, y, gradients, hvps, V):
 
-        (loss_value, metrics), grads = (
-            eqx.filter_value_and_grad(
-                self.compute_loss,
-                has_aux=True,
-            )(
-                model,
-                X,
-                y,
-                gradients,
-                hvps,
-                V,
+        (loss_value, metrics), grads = eqx.filter_value_and_grad(
+            self.compute_loss, has_aux=True
+        )(model, X, y, gradients, hvps, V)
+
+        updates, opt_state = self.optimizer.update(grads, opt_state, model)
+
+        model = eqx.apply_updates(model, updates)
+
+        return (model, opt_state, loss_value, metrics)
+
+    def _run_epoch(self, model, opt_state, dataset, key):
+        """
+        One pass over the training set.
+
+        Returns the updated model and optimiser state alongside the epoch's
+        averaged losses. Sums first and divides once, so the arithmetic is the
+        same regardless of how the batches fall.
+        """
+
+        loader = DataLoader(dataset, batch_size=self.config.batch_size, shuffle=True)
+
+        total = price = price_mse_raw = gradient = hessian = 0.0
+        n_batches = 0
+
+        for X_batch, y_batch, grad_batch, hvp_batch, V_batch in loader.batches(key):
+
+            model, opt_state, loss_value, metrics = self.train_step(
+                model, opt_state, X_batch, y_batch, grad_batch, hvp_batch, V_batch
             )
+
+            total += float(loss_value)
+            price += float(metrics["price_loss"])
+            price_mse_raw += float(metrics.get("price_mse_raw", metrics["price_loss"]))
+            gradient += float(metrics.get("gradient_loss", 0.0))
+            hessian += float(metrics.get("hessian_loss", 0.0))
+
+            n_batches += 1
+
+        n = max(n_batches, 1)
+
+        stats = _EpochStats(
+            total=total / n,
+            price=price / n,
+            price_rmse=(price_mse_raw / n) ** 0.5,
+            gradient=gradient / n,
+            hessian=hessian / n,
         )
 
-        updates, opt_state = self.optimizer.update(
-            grads,
-            opt_state,
-            model,
-        )
+        return model, opt_state, stats
 
-        model = eqx.apply_updates(
-            model,
-            updates,
-        )
+    @staticmethod
+    def _record(history, prefix, stats):
+        """Append one epoch's numbers under `train_` or `valid_`."""
 
-        return (
-            model,
-            opt_state,
-            loss_value,
-            metrics,
+        history[f"{prefix}_loss"].append(stats.total)
+        history[f"{prefix}_price_rmse"].append(stats.price_rmse)
+        history[f"{prefix}_price_loss"].append(stats.price)
+        history[f"{prefix}_gradient_loss"].append(stats.gradient)
+        history[f"{prefix}_hessian_loss"].append(stats.hessian)
+
+    def _print_progress(self, epoch, train, valid):
+        if valid is None:
+            print(f"Epoch {epoch:4d} | Train Loss: {train.total:.6e}")
+            return
+
+        print(
+            f"Epoch {epoch:4d}"
+            f" | Train: {train.total:.6e}"
+            f" | Valid: {valid.total:.6e}"
+            f" | TrainRMSE: {train.price_rmse:.6e}"
+            f" | ValidRMSE: {valid.price_rmse:.6e}"
+            f" | GradLoss: {train.gradient:.6e}"
+            f" | HessLoss: {train.hessian:.6e}"
         )
 
     def fit(
@@ -257,167 +304,51 @@ class SobolevTrainer:
         train_dataset: SobolevDataset,
         valid_dataset: Optional[SobolevDataset] = None,
     ) -> Dict[str, List[float]]:
+        """
+        Train, tracking the best model by `config.selection_metric`.
 
-        key = jax.random.PRNGKey(
-            self.config.seed
-        )
+        With a validation set the returned model is the best epoch's, not the
+        last one's; without one it is simply the last.
+        """
+
+        key = jax.random.PRNGKey(self.config.seed)
 
         self._build_optimizer(
-            steps_per_epoch=max(
-                1,
-                -(-len(train_dataset) // self.config.batch_size),
-            )
+            steps_per_epoch=max(1, -(-len(train_dataset) // self.config.batch_size))
         )
 
         history = {
-            "train_loss": [],
-            "valid_loss": [],
-            "learning_rate": [],
-
-            "train_price_rmse": [],
-            "valid_price_rmse": [],
-
-            "train_price_loss": [],
-            "train_gradient_loss": [],
-            "train_hessian_loss": [],
-
-            "valid_price_loss": [],
-            "valid_gradient_loss": [],
-            "valid_hessian_loss": [],
+            f"{prefix}_{name}": []
+            for prefix in ("train", "valid")
+            for name in (
+                "loss",
+                "price_rmse",
+                "price_loss",
+                "gradient_loss",
+                "hessian_loss",
+            )
         }
+        history["learning_rate"] = []
 
         model = self.model
         opt_state = self.opt_state
 
         best_loss = float("inf")
         patience_counter = 0
+        best_model = copy.deepcopy(model)
 
-        best_model = copy.deepcopy(
-            model
-        )
+        for epoch in range(self.config.epochs):
 
-        for epoch in range(
-            self.config.epochs
-        ):
+            key, loader_key = jax.random.split(key)
 
-            key, loader_key = jax.random.split(
-                key
+            model, opt_state, train_stats = self._run_epoch(
+                model, opt_state, train_dataset, loader_key
             )
 
-            loader = DataLoader(
-                train_dataset,
-                batch_size=self.config.batch_size,
-                shuffle=True,
-            )
+            self._record(history, "train", train_stats)
+            history["learning_rate"].append(self._current_learning_rate(epoch))
 
-            epoch_loss = 0.0
-            epoch_price_loss = 0.0
-            epoch_price_mse_raw = 0.0
-            epoch_gradient_loss = 0.0
-            epoch_hessian_loss = 0.0
-            n_batches = 0
-
-            for (
-                X_batch,
-                y_batch,
-                grad_batch,
-                hvp_batch,
-                V_batch,
-            ) in loader.batches(loader_key):
-
-                (
-                    model,
-                    opt_state,
-                    loss_value,
-                    metrics,
-                ) = self.train_step(
-                    model,
-                    opt_state,
-                    X_batch,
-                    y_batch,
-                    grad_batch,
-                    hvp_batch,
-                    V_batch,
-                )
-
-                epoch_loss += float(loss_value)
-
-                epoch_price_loss += float(
-                        metrics["price_loss"]
-                    )
-
-                epoch_price_mse_raw += float(
-                    metrics.get("price_mse_raw", metrics["price_loss"])
-                )
-
-                epoch_gradient_loss += float(
-                    metrics.get(
-                        "gradient_loss",
-                        0.0,
-                    )
-                )
-
-                epoch_hessian_loss += float(
-                    metrics.get(
-                        "hessian_loss",
-                        0.0,
-                    )
-                )
-
-                n_batches += 1
-
-            epoch_loss /= max(
-                n_batches,
-                1,
-            )
-
-            epoch_price_loss /= max(
-                n_batches,
-                1,
-            )
-
-            epoch_price_mse_raw /= max(
-                n_batches,
-                1,
-            )
-
-            epoch_gradient_loss /= max(
-                n_batches,
-                1,
-            )
-
-            epoch_hessian_loss /= max(
-                n_batches,
-                1,
-            )
-
-            epoch_price_rmse = (
-                epoch_price_mse_raw
-            ) ** 0.5
-
-            history["train_loss"].append(
-                epoch_loss
-            )
-
-            history["learning_rate"].append(
-                self._current_learning_rate(epoch)
-            )
-
-            history["train_price_rmse"].append(
-                epoch_price_rmse
-            )
-
-            history["train_price_loss"].append(
-                epoch_price_loss
-            )
-
-            history["train_gradient_loss"].append(
-                epoch_gradient_loss
-            )
-
-            history["train_hessian_loss"].append(
-                epoch_hessian_loss
-            )
+            valid_stats = None
 
             if valid_dataset is not None:
 
@@ -430,107 +361,33 @@ class SobolevTrainer:
                     valid_dataset.V,
                 )
 
-                valid_price_rmse = (
-                    float(
-                        valid_metrics.get(
-                            "price_mse_raw",
-                            valid_metrics["price_loss"],
-                        )
-                    )
-                ) ** 0.5
+                valid_stats = _EpochStats.from_metrics(valid_loss, valid_metrics)
+                self._record(history, "valid", valid_stats)
 
-                history["valid_price_rmse"].append(
-                    valid_price_rmse
-                )
+                selection_loss = self._selection_loss(valid_stats.total, valid_metrics)
 
-                valid_loss = float(valid_loss)
-
-                history["valid_loss"].append(
-                    valid_loss
-                )
-
-                history["valid_price_loss"].append(
-                    float(valid_metrics["price_loss"])
-                )
-
-                history["valid_gradient_loss"].append(
-                    float(valid_metrics.get("gradient_loss", 0.0))
-                )
-
-                history["valid_hessian_loss"].append(
-                    float(valid_metrics.get("hessian_loss", 0.0))
-                )
-
-                selection_loss = self._selection_loss(
-                    valid_loss, valid_metrics
-                )
-
-                improvement = (
-                    best_loss - selection_loss
-                )
-
-                if (
-                    improvement
-                    > self._improvement_threshold(best_loss)
-                ):
-
+                if best_loss - selection_loss > self._improvement_threshold(best_loss):
                     best_loss = selection_loss
-
-                    best_model = copy.deepcopy(
-                        model
-                    )
+                    best_model = copy.deepcopy(model)
+                    patience_counter = 0
 
                     if self.checkpoint_path is not None:
-
-                        eqx.tree_serialise_leaves(
-                            self.checkpoint_path,
-                            model,
-                        )
-
-                    patience_counter = 0
+                        eqx.tree_serialise_leaves(self.checkpoint_path, model)
 
                 else:
                     patience_counter += 1
 
                 if (
                     self.config.early_stopping
-                    and patience_counter
-                    >= self.config.patience
+                    and patience_counter >= self.config.patience
                 ):
-                    print(
-                        f"Early stopping at "
-                        f"epoch {epoch}"
-                    )
+                    print(f"Early stopping at epoch {epoch}")
                     break
 
-            if (
-                epoch
-                % self.config.print_every
-                == 0
-            ):
-
-                if valid_dataset is None:
-
-                    print(
-                        f"Epoch {epoch:4d}"
-                        f" | Train Loss:"
-                        f" {epoch_loss:.6e}"
-                    )
-
-                else:
-
-                    print(
-                        f"Epoch {epoch:4d}"
-                        f" | Train: {epoch_loss:.6e}"
-                        f" | Valid: {valid_loss:.6e}"
-                        f" | TrainRMSE: {epoch_price_rmse:.6e}"
-                        f" | ValidRMSE: {valid_price_rmse:.6e}"
-                        f" | GradLoss: {epoch_gradient_loss:.6e}"
-                        f" | HessLoss: {epoch_hessian_loss:.6e}"
-                    )
+            if epoch % self.config.print_every == 0:
+                self._print_progress(epoch, train_stats, valid_stats)
 
         if valid_dataset is not None:
-
             model = best_model
 
         self.model = model
@@ -538,32 +395,18 @@ class SobolevTrainer:
 
         return history
 
-    def evaluate(
-        self,
-        dataset: SobolevDataset,
-    ) -> Dict[str, float]:
+    def evaluate(self, dataset: SobolevDataset) -> Dict[str, float]:
 
-        prices_pred = self.model.predict_prices(
-            dataset.X
-        )
+        prices_pred = self.model.predict_prices(dataset.X)
 
         gradients_pred = None
         hvps_pred = None
 
         if dataset.gradients is not None:
-            gradients_pred = (
-                self.model.predict_gradients(
-                    dataset.X
-                )
-            )
+            gradients_pred = self.model.predict_gradients(dataset.X)
 
         if dataset.hvps is not None and dataset.V is not None:
-            hvps_pred = (
-                self.model.predict_hvps(
-                    dataset.X,
-                    dataset.V
-                )
-            )
+            hvps_pred = self.model.predict_hvps(dataset.X, dataset.V)
 
         return sobolev_metrics(
             prices_pred,

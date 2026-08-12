@@ -19,8 +19,7 @@ class Surrogate(NamedTuple):
 
 
 def build_surrogate(
-    train_dataset: SobolevDataset,
-    config: ExperimentConfig,
+    train_dataset: SobolevDataset, config: ExperimentConfig
 ) -> Surrogate:
 
     network = build_network(
@@ -37,13 +36,7 @@ def build_surrogate(
     y_mean = jnp.mean(train_dataset.y)
     y_std = jnp.std(train_dataset.y)
 
-    model = SurrogateModel(
-        network,
-        x_mean,
-        x_std,
-        y_mean,
-        y_std,
-    )
+    model = SurrogateModel(network, x_mean, x_std, y_mean, y_std)
 
     scale = x_std / y_std
 
@@ -63,6 +56,4 @@ def _derivative_scale(values, scale):
     if values is None:
         return None
 
-    return jnp.maximum(
-        jnp.std(values * scale, axis=0), 1e-6
-    )
+    return jnp.maximum(jnp.std(values * scale, axis=0), 1e-6)

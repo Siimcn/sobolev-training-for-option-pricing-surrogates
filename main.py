@@ -7,11 +7,7 @@ from surrogate_modeling.pricing_problem import build_problem
 from utils.experiment_logger import ExperimentLogger
 
 from pipeline.config import ExperimentConfig
-from pipeline.data import (
-    build_dataset,
-    plot_training_path_samples,
-    split_dataset,
-)
+from pipeline.data import build_dataset, plot_training_path_samples, split_dataset
 from pipeline.evaluation import (
     evaluate_surrogate,
     print_example_prediction,
@@ -19,11 +15,7 @@ from pipeline.evaluation import (
 )
 from pipeline.market import load_and_calibrate
 from pipeline.model import build_surrogate
-from pipeline.reporting import (
-    plot_training_diagnostics,
-    print_header,
-    save_artifacts,
-)
+from pipeline.reporting import plot_training_diagnostics, print_header, save_artifacts
 from pipeline.risk import run_risk_analysis
 from pipeline.training import train_surrogate
 
@@ -70,13 +62,7 @@ def main(config: ExperimentConfig = None):
 
     metrics = evaluate_surrogate(trainer, test_dataset, problem)
 
-    plot_training_diagnostics(
-        history,
-        trainer.model,
-        test_dataset,
-        problem,
-        config,
-    )
+    plot_training_diagnostics(history, trainer.model, test_dataset, problem, config)
 
     print_example_prediction(trainer.model, dataset)
 
@@ -85,26 +71,14 @@ def main(config: ExperimentConfig = None):
     xva = run_risk_analysis(trainer.model, problem, config)
 
     save_artifacts(
-        logger,
-        config,
-        problem,
-        market_data,
-        calibration,
-        metrics,
-        validation,
-        xva,
+        logger, config, problem, market_data, calibration, metrics, validation, xva
     )
 
-    print(
-        "\nPipeline finished.\n"
-    )
+    print("\nPipeline finished.\n")
 
 
 if __name__ == "__main__":
 
-    jax.config.update(
-        "jax_enable_x64",
-        True,
-    )
+    jax.config.update("jax_enable_x64", True)
 
     main()

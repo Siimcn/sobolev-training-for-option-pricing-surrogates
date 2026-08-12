@@ -12,6 +12,7 @@
 \newcommand{\reffig}[1]{Figure~\ref{#1}}
  
 \begin{document}
+\sloppy                 % for better line breaks, but leaves some large gaps
  
 \lstloadlanguages{[ISO]C++}
 \lstset{basicstyle=\small, numbers=left, numberstyle=\footnotesize,
@@ -90,11 +91,18 @@ UML Class diagram(s) and description; should link into overall design through
 reference of application programming interfaces (API) of third-party software
 
 \chapter{Implementation} \label{ch:implementation}
-\chapter{Implementation} \label{ch:implementation}
 
 \section{Development Infrastructure}
 
 Wir haben das Projekt in Python umgesetzt. Als Grundlage nutzen wir JAX für die numerischen Berechnungen, Equinox für die Modellkomponenten und Optimistix für die Kalibrierung. Für das Laden der Marktdaten verwenden wir zusätzlich \texttt{yfinance}.
+
+\section{Source Code}
+
+Der Code ist in mehrere Pakete aufgeteilt. \texttt{kalibrierung} enthält das Laden der Marktdaten und die Kalibrierung, \texttt{marktsimulation} die Preisfunktionen und \texttt{surrogate\_modeling} das Sobolev-Training. Die Risikoberechnung liegt in \texttt{risk\_visualisierung}, und \texttt{pipeline} steuert den Ablauf und enthält die gesamte Konfiguration.
+
+Die zentrale Einstiegsstelle ist \texttt{main.py}. Dort werden die Schritte nacheinander ausgeführt: Marktdaten laden, kalibrieren, Dataset erzeugen, Surrogat trainieren und Ergebnisse auswerten. Das hält den Ablauf übersichtlich und macht Debugging einfacher.
+
+Die sechs Preismodelle sind als \texttt{PricingProblem} in \texttt{surrogate\_modeling/problems/} registriert -- je ein Modul pro Modellfamilie. Kein Schritt in \texttt{pipeline} fragt, um welches Modell es sich handelt; jeder Schritt bekommt ein \texttt{PricingProblem} und fragt dieses. Ein neues Modell erfordert daher nur ein neues Modul und dessen Registrierung.
 
 \section{Kalibrierung}
 
@@ -108,17 +116,45 @@ Die eigentliche Optimierung übernimmt \texttt{Calibrator}. Dabei werden die Mod
 
 Die Kalibrierung ist nicht als einzelner Schritt gedacht, sondern als Startpunkt für den Rest der Pipeline. Erst danach werden die Sobolev-Daten erzeugt, das Surrogat trainiert und die Risikoanalyse ausgeführt. So bauen alle Teile auf denselben Modellparametern auf.
 
-\section{Source Code}
+\section{Visualisierung und Reporting}
+Das Modul \texttt{risk\_visualisierung} ist in die drei Komponenten \texttt{xva\_analysis}, \texttt{riskengine} und \texttt{visualizer} unterteilt 
+und verbindet Surrogat-Evaluation mit Monte-Carlo-Simulationen und XVA-Berechnungen.
 
-Der Code ist in mehrere Pakete aufgeteilt. \texttt{kalibrierung} enthält das Laden der Marktdaten und die Kalibrierung, \texttt{marktsimulation} die Preisfunktionen und \texttt{surrogate\_modeling} das Sobolev-Training. Die Risikoberechnung liegt in \texttt{risk\_visualisierung}.
+Die Visualisierung der Ergebnisse und Trainingsverläufe wird durch die Klasse \textbf{Visualizer} übernommen. 
+Diese verwendet \texttt{matplotlib} für die Erstellung der Graphen und nutzt standardmäßig das \texttt{Agg}-Backend, 
+falls keine direkte Bildschirmausgabe gefordert ist. Alle generierten Graphen können lokal oder über einen Logger gespeichert werden.
 
-Die zentrale Einstiegstelle ist \texttt{main.py}. Dort werden die Schritte nacheinander ausgeführt: Marktdaten laden, kalibrieren, Dataset erzeugen, Surrogat trainieren und Ergebnisse auswerten. Das hält den Ablauf übersichtlich und macht Debugging einfacher.
+Zu den Hauptfunktionen der \texttt{Visualizer}-Klasse gehören:
+\begin{itemize}
+\item \textbf{Trainingsdiagnostik:} \texttt{plot\_training\_history} visualisiert den Gesamtverlust des Sobolev-Trainings sowie den Price-RMSE; 
+Verlustkomponenten (Preis, Gradienten, HVP) werden separat gezeigt.
+\item \textbf{Surrogat-Evaluierung:} \texttt{plot\_price\_comparison} vergleicht Surrogat-Preise mit Ground-Truth; 
+\texttt{plot\_surrogate\_surface} erzeugt 3D-Oberflächen zur Inspektion von Eingabe-Einflussgrößen.
+\item \textbf{Risikovisualisierung:} \texttt{plot\_exposure\_profiles} plottet EPE (Expected Positive Exposure) und ENE (Expected Negative Exposure); 
+\texttt{plot\_mc\_paths} visualisiert generierte Monte-Carlo-Pfade.
+\item \textbf{Reporting:} \texttt{report\_risk\_metrics} und \texttt{report\_metrics} geben berechnete Kennzahlen (z.B. CVA, DVA, NetXVA) formatiert in der Konsole aus.
+\end{itemize}
+
+Das Modul \textbf{xva\_analysis} stellt den Ablauf zur XVA-Validierung bereit. 
+Die Funktion \texttt{run\_xva\_analysis} erzeugt für ein gegebenes \texttt{PricingProblem} Monte-Carlo-Feature-Pfade (über \texttt{exposure\_paths}), 
+wertet diese über das Surrogat oder eine geschlossene Referenzfunktion aus und berechnet für jede betrachtete Moneyness-Stufe Exposure-Profile sowie XVA-Kennzahlen. 
+Gibt es eine analytischen Referenz werden Surrogat- und Referenz-XVA verglichen und der relative Fehler ausgegeben. 
+Ergebnisvisualisierungen und Reports werden über mit Funktionen der Klasse \texttt{Visualizer} erzeugt.
+
+Die Klasse \textbf{RiskEngine} enthält die eigentlichen Routinen zur Bestimmung von Exposure-Profilen und XVA. 
+Prameter wie \texttt{recovery\_rate} (Standard: 0.4) und \texttt{hazard\_rate} (Standard: 0.02) legen dabei die Loss-Given-Default (LGD) und die zugrunde liegenden Ausfallwahrscheinlichkeiten fest. 
+Es gibt zwei wichtige Funktionen: texttt{compute\_xva\_risk}, das ein trainiertes Surrogat entgegennimmt, und \texttt{compute\_xva\_risk\_reference}, das eine beliebige Bewertungsfunktion (z.\,B. \texttt{surrogate.predict\_price} oder eine analytische Formel) vektorisiert auswertet. 
+Aus der parametrischen Überlebensfunktion (mit \texttt{hazard\_rate}) werden diskrete Default-Wahrscheinlichkeiten abgeleitet, mit denen die Exposure-Profile gewichtet werden; 
+die CVA bzw. DVA ergeben sich dann als \texttt{LGD * sum(EPE * default\_probs)} bzw. \texttt{LGD * sum(ENE * default\_probs)}, und \texttt{NetXVA} ist die Differenz \texttt{CVA - DVA}. 
+Die Riskengine erstellt auch die zugrundeliegende \texttt{V\_matrix}, sodass sich anschließende Visualisierungen (z.\,B. EPE/ENE-Plots) und Vergleiche mit Referenzwerten leicht durchführen lassen. 
+
+Wir trennen so Simulation (\texttt{PricingProblem}), Bewertungslogik (Surrogat oder Referenz), Risk-Formeln (\texttt{RiskEngine}) und Visualisierung/Reporting (\texttt{Visualizer}), um eine saubere Struktur zu erhalten.
 
 \section{Software Tests}
 
 Für die Tests haben wir vor allem auf Plausibilität und einen durchlaufenden Gesamtworkflow geachtet. Wichtig war, dass die Marktdaten geladen werden können, die Kalibrierung läuft und am Ende sinnvolle Parameter zurückkommen.
 
-Zusätzlich haben wir die komplette Pipeline einmal mit einem realen Marktsnapshot ausgeführt. So konnten wir prüfen, dass die einzelnen Module auch zusammen sauber funktionieren.
+Zusätzlich haben wir die komplette Pipeline mit realen Marktsnapshots ausgeführt. So konnten wir prüfen, dass die einzelnen Module auch zusammen sauber funktionieren.
 
 \chapter{Project Management} \label{ch:projectmanagement}
 
@@ -145,4 +181,3 @@ e.g, \verb!make test!
 documented sample session(s); e.g, \verb!make run!
 
 \end{document}
-

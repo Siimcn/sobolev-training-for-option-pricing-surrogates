@@ -23,13 +23,8 @@ def train_surrogate(
         hvp_scale=surrogate.hvp_scale,
     )
 
-    history = trainer.fit(
-        train_dataset=train_dataset,
-        valid_dataset=test_dataset,
-    )
+    history = trainer.fit(train_dataset=train_dataset, valid_dataset=test_dataset)
 
-    print(
-        "\nTraining finished.\n"
-    )
+    print("\nTraining finished.\n")
 
     return trainer, history
