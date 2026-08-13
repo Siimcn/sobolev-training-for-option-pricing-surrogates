@@ -13,6 +13,20 @@ dependencies = [
     "yfinance>=1.5.1",
 ]
 
+[tool.setuptools.packages.find]
+include = [
+    "calibration*",
+    "market_simulation*",
+    "pipeline*",
+    "risk_visualization*",
+    "surrogate_modeling*",
+    "utils*",
+]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "black>=25.0",
